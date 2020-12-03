@@ -252,6 +252,18 @@
 
 
   <li class="md-nav__item">
+    <a href="../UPGRADING/" title="Upgrading" class="md-nav__link">
+      Upgrading
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
     <a href="../getting-started/" title="Getting started" class="md-nav__link">
       Getting started
     </a>
@@ -301,13 +313,13 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-7" type="checkbox" id="nav-7">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-8" type="checkbox" id="nav-8">
     
-    <label class="md-nav__link" for="nav-7">
+    <label class="md-nav__link" for="nav-8">
       Command reference
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-7">
+      <label class="md-nav__title" for="nav-8">
         Command reference
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -487,6 +499,54 @@
 
 
   <li class="md-nav__item">
+    <a href="../commands/arduino-cli_config_add/" title="config add" class="md-nav__link">
+      config add
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../commands/arduino-cli_config_delete/" title="config delete" class="md-nav__link">
+      config delete
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../commands/arduino-cli_config_remove/" title="config remove" class="md-nav__link">
+      config remove
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../commands/arduino-cli_config_set/" title="config set" class="md-nav__link">
+      config set
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
     <a href="../commands/arduino-cli_core/" title="core" class="md-nav__link">
       core
     </a>
@@ -643,6 +703,18 @@
 
 
   <li class="md-nav__item">
+    <a href="../commands/arduino-cli_lib_examples/" title="lib examples" class="md-nav__link">
+      lib examples
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
     <a href="../commands/arduino-cli_lib_install/" title="lib install" class="md-nav__link">
       lib install
     </a>
@@ -739,6 +811,18 @@
 
 
   <li class="md-nav__item">
+    <a href="../commands/arduino-cli_sketch_archive/" title="sketch archive" class="md-nav__link">
+      sketch archive
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
     <a href="../commands/arduino-cli_sketch_new/" title="sketch new" class="md-nav__link">
       sketch new
     </a>
@@ -805,13 +889,13 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-8" type="checkbox" id="nav-8">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-9" type="checkbox" id="nav-9">
     
-    <label class="md-nav__link" for="nav-8">
+    <label class="md-nav__link" for="nav-9">
       gRPC reference
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-8">
+      <label class="md-nav__title" for="nav-9">
         gRPC reference
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -1224,8 +1308,6 @@
 <ul>
 <li><code>board_manager</code><ul>
 <li><code>additional_urls</code> - the URLs to any additional Boards Manager package index files needed for your boards platforms.</li>
-<li><code>additional_paths</code> - the absolute file paths to any additional Boards Manager package index files needed for your
-  boards platforms.</li>
 </ul>
 </li>
 <li><code>daemon</code> - options related to running Arduino CLI as a <a href="https://grpc.io">gRPC</a> server.<ul>
@@ -1285,9 +1367,6 @@ can use the <a href="https://docs.microsoft.com/en-us/windows-server/administrat
 <p>Setting an additional Boards Manager URL using the <code>ARDUINO_BOARD_MANAGER_ADDITIONAL_URLS</code> environment variable:</p>
 <div class="highlight"><pre><span></span><code>$ <span class="nb">export</span> <span class="nv">ARDUINO_BOARD_MANAGER_ADDITIONAL_URLS</span><span class="o">=</span>https://downloads.arduino.cc/packages/package_staging_index.json
 </code></pre></div>
-<p>Setting an additional Boards Manager file using the <code>ARDUINO_BOARD_MANAGER_ADDITIONAL_PATHS</code> environment variable:</p>
-<div class="highlight"><pre><span></span><code>$ <span class="nb">export</span> <span class="nv">ARDUINO_BOARD_MANAGER_ADDITIONAL_PATHS</span><span class="o">=</span>/path/to/your/package_staging_index.json
-</code></pre></div>
 <h3 id="configuration-file">Configuration file<a class="headerlink" href="#configuration-file" title="Permanent link">&para;</a></h3>
 <p><a href="../commands/arduino-cli_config_init/"><code>arduino-cli config init</code></a> creates or updates a configuration file with the current
 configuration settings.</p>
@@ -1329,15 +1408,6 @@ combined.</p>
 <p>Doing the same using a TOML format file:</p>
 <div class="highlight"><pre><span></span><code><span class="k">[board_manager]</span>
 <span class="n">additional_urls</span> <span class="o">=</span> <span class="k">[ &quot;https://downloads.arduino.cc/packages/package_staging_index.json&quot; ]</span>
-</code></pre></div>
-<p>Setting an additional Boards Manager File using a YAML format configuration file:</p>
-<div class="highlight"><pre><span></span><code><span class="nt">board_manager</span><span class="p">:</span>
-  <span class="nt">additional_paths</span><span class="p">:</span>
-    <span class="p p-Indicator">-</span> <span class="l l-Scalar l-Scalar-Plain">/path/to/your/package_staging_index.json</span>
-</code></pre></div>
-<p>Doing the same using a TOML format file:</p>
-<div class="highlight"><pre><span></span><code><span class="k">[board_manager]</span>
-<span class="n">additional_paths</span> <span class="o">=</span> <span class="k">[ &quot;/path/to/your/package_staging_index.json&quot; ]</span>
 </code></pre></div>
                 
                   
