@@ -16,6 +16,7 @@
 package update
 
 import (
+	"context"
 	"os"
 
 	"github.com/arduino/arduino-cli/internal/cli/core"
@@ -23,36 +24,36 @@ import (
 	"github.com/arduino/arduino-cli/internal/cli/lib"
 	"github.com/arduino/arduino-cli/internal/cli/outdated"
 	"github.com/arduino/arduino-cli/internal/i18n"
+	rpc "github.com/arduino/arduino-cli/rpc/cc/arduino/cli/commands/v1"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
-var tr = i18n.Tr
-
 // NewCommand creates a new `update` command
-func NewCommand() *cobra.Command {
+func NewCommand(srv rpc.ArduinoCoreServiceServer) *cobra.Command {
 	var showOutdated bool
 	updateCommand := &cobra.Command{
 		Use:     "update",
-		Short:   tr("Updates the index of cores and libraries"),
-		Long:    tr("Updates the index of cores and libraries to the latest versions."),
+		Short:   i18n.Tr("Updates the index of cores and libraries"),
+		Long:    i18n.Tr("Updates the index of cores and libraries to the latest versions."),
 		Example: "  " + os.Args[0] + " update",
 		Args:    cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			runUpdateCommand(showOutdated)
+			runUpdateCommand(cmd.Context(), srv, showOutdated)
 		},
 	}
-	updateCommand.Flags().BoolVar(&showOutdated, "show-outdated", false, tr("Show outdated cores and libraries after index update"))
+	updateCommand.Flags().BoolVar(&showOutdated, "show-outdated", false, i18n.Tr("Show outdated cores and libraries after index update"))
 	return updateCommand
 }
 
-func runUpdateCommand(showOutdated bool) {
-	inst := instance.CreateAndInit()
+func runUpdateCommand(ctx context.Context, srv rpc.ArduinoCoreServiceServer, showOutdated bool) {
 	logrus.Info("Executing `arduino-cli update`")
-	lib.UpdateIndex(inst)
-	core.UpdateIndex(inst)
-	instance.Init(inst)
+	inst := instance.CreateAndInit(ctx, srv)
+
+	lib.UpdateIndex(ctx, srv, inst)
+	core.UpdateIndex(ctx, srv, inst)
+	instance.Init(ctx, srv, inst)
 	if showOutdated {
-		outdated.Outdated(inst)
+		outdated.Outdated(ctx, srv, inst)
 	}
 }

@@ -19,30 +19,29 @@ import (
 	"os"
 
 	"github.com/arduino/arduino-cli/internal/i18n"
+	rpc "github.com/arduino/arduino-cli/rpc/cc/arduino/cli/commands/v1"
 	"github.com/spf13/cobra"
 )
 
-var tr = i18n.Tr
-
 // NewCommand created a new `lib` command
-func NewCommand() *cobra.Command {
+func NewCommand(srv rpc.ArduinoCoreServiceServer, defaultSettings *rpc.Configuration) *cobra.Command {
 	libCommand := &cobra.Command{
 		Use:   "lib",
-		Short: tr("Arduino commands about libraries."),
-		Long:  tr("Arduino commands about libraries."),
+		Short: i18n.Tr("Arduino commands about libraries."),
+		Long:  i18n.Tr("Arduino commands about libraries."),
 		Example: "" +
 			"  " + os.Args[0] + " lib install AudioZero\n" +
 			"  " + os.Args[0] + " lib update-index",
 	}
 
-	libCommand.AddCommand(initDownloadCommand())
-	libCommand.AddCommand(initInstallCommand())
-	libCommand.AddCommand(initListCommand())
-	libCommand.AddCommand(initExamplesCommand())
-	libCommand.AddCommand(initSearchCommand())
-	libCommand.AddCommand(initUninstallCommand())
-	libCommand.AddCommand(initUpgradeCommand())
-	libCommand.AddCommand(initUpdateIndexCommand())
-	libCommand.AddCommand(initDepsCommand())
+	libCommand.AddCommand(initDownloadCommand(srv))
+	libCommand.AddCommand(initInstallCommand(srv, defaultSettings))
+	libCommand.AddCommand(initListCommand(srv))
+	libCommand.AddCommand(initExamplesCommand(srv))
+	libCommand.AddCommand(initSearchCommand(srv))
+	libCommand.AddCommand(initUninstallCommand(srv))
+	libCommand.AddCommand(initUpgradeCommand(srv))
+	libCommand.AddCommand(initUpdateIndexCommand(srv))
+	libCommand.AddCommand(initDepsCommand(srv))
 	return libCommand
 }

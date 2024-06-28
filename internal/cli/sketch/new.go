@@ -20,33 +20,35 @@ import (
 	"os"
 	"strings"
 
-	sk "github.com/arduino/arduino-cli/commands/sketch"
 	"github.com/arduino/arduino-cli/internal/arduino/globals"
 	"github.com/arduino/arduino-cli/internal/cli/feedback"
+	"github.com/arduino/arduino-cli/internal/i18n"
 	rpc "github.com/arduino/arduino-cli/rpc/cc/arduino/cli/commands/v1"
 	paths "github.com/arduino/go-paths-helper"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
-func initNewCommand() *cobra.Command {
+func initNewCommand(srv rpc.ArduinoCoreServiceServer) *cobra.Command {
 	var overwrite bool
 
 	newCommand := &cobra.Command{
 		Use:     "new",
-		Short:   tr("Create a new Sketch"),
-		Long:    tr("Create a new Sketch"),
+		Short:   i18n.Tr("Create a new Sketch"),
+		Long:    i18n.Tr("Create a new Sketch"),
 		Example: "  " + os.Args[0] + " sketch new MultiBlinker",
 		Args:    cobra.ExactArgs(1),
-		Run:     func(cmd *cobra.Command, args []string) { runNewCommand(args, overwrite) },
+		Run: func(cmd *cobra.Command, args []string) {
+			runNewCommand(cmd.Context(), srv, args, overwrite)
+		},
 	}
 
-	newCommand.Flags().BoolVarP(&overwrite, "overwrite", "f", false, tr("Overwrites an existing .ino sketch."))
+	newCommand.Flags().BoolVarP(&overwrite, "overwrite", "f", false, i18n.Tr("Overwrites an existing .ino sketch."))
 
 	return newCommand
 }
 
-func runNewCommand(args []string, overwrite bool) {
+func runNewCommand(ctx context.Context, srv rpc.ArduinoCoreServiceServer, args []string, overwrite bool) {
 	logrus.Info("Executing `arduino-cli sketch new`")
 	// Trim to avoid issues if user creates a sketch adding the .ino extesion to the name
 	inputSketchName := args[0]
@@ -66,19 +68,19 @@ func runNewCommand(args []string, overwrite bool) {
 	} else {
 		sketchDirPath, err = paths.New(trimmedSketchName).Abs()
 		if err != nil {
-			feedback.Fatal(tr("Error creating sketch: %v", err), feedback.ErrGeneric)
+			feedback.Fatal(i18n.Tr("Error creating sketch: %v", err), feedback.ErrGeneric)
 		}
 		sketchDir = sketchDirPath.Parent().String()
 		sketchName = sketchDirPath.Base()
 	}
 
-	_, err = sk.NewSketch(context.Background(), &rpc.NewSketchRequest{
+	_, err = srv.NewSketch(ctx, &rpc.NewSketchRequest{
 		SketchName: sketchName,
 		SketchDir:  sketchDir,
 		Overwrite:  overwrite,
 	})
 	if err != nil {
-		feedback.Fatal(tr("Error creating sketch: %v", err), feedback.ErrGeneric)
+		feedback.Fatal(i18n.Tr("Error creating sketch: %v", err), feedback.ErrGeneric)
 	}
 
 	feedback.PrintResult(sketchResult{SketchDirPath: sketchDirPath})
@@ -93,5 +95,5 @@ func (ir sketchResult) Data() interface{} {
 }
 
 func (ir sketchResult) String() string {
-	return tr("Sketch created in: %s", ir.SketchDirPath)
+	return i18n.Tr("Sketch created in: %s", ir.SketchDirPath)
 }

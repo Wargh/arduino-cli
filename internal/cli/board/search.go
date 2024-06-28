@@ -22,43 +22,45 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/arduino/arduino-cli/commands/board"
 	"github.com/arduino/arduino-cli/internal/cli/feedback"
 	"github.com/arduino/arduino-cli/internal/cli/feedback/result"
 	"github.com/arduino/arduino-cli/internal/cli/feedback/table"
 	"github.com/arduino/arduino-cli/internal/cli/instance"
+	"github.com/arduino/arduino-cli/internal/i18n"
 	rpc "github.com/arduino/arduino-cli/rpc/cc/arduino/cli/commands/v1"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
-func initSearchCommand() *cobra.Command {
+func initSearchCommand(srv rpc.ArduinoCoreServiceServer) *cobra.Command {
 	var searchCommand = &cobra.Command{
-		Use:   fmt.Sprintf("search [%s]", tr("boardname")),
-		Short: tr("Search for a board in the Boards Manager."),
-		Long:  tr(`Search for a board in the Boards Manager using the specified keywords.`),
+		Use:   fmt.Sprintf("search [%s]", i18n.Tr("boardname")),
+		Short: i18n.Tr("Search for a board in the Boards Manager."),
+		Long:  i18n.Tr(`Search for a board in the Boards Manager using the specified keywords.`),
 		Example: "" +
 			"  " + os.Args[0] + " board search\n" +
 			"  " + os.Args[0] + " board search zero",
 		Args: cobra.ArbitraryArgs,
-		Run:  runSearchCommand,
+		Run: func(cmd *cobra.Command, args []string) {
+			runSearchCommand(cmd.Context(), srv, args)
+		},
 	}
-	searchCommand.Flags().BoolVarP(&showHiddenBoard, "show-hidden", "a", false, tr("Show also boards marked as 'hidden' in the platform"))
+	searchCommand.Flags().BoolVarP(&showHiddenBoard, "show-hidden", "a", false, i18n.Tr("Show also boards marked as 'hidden' in the platform"))
 	return searchCommand
 }
 
-func runSearchCommand(cmd *cobra.Command, args []string) {
-	inst := instance.CreateAndInit()
+func runSearchCommand(ctx context.Context, srv rpc.ArduinoCoreServiceServer, args []string) {
+	inst := instance.CreateAndInit(ctx, srv)
 
 	logrus.Info("Executing `arduino-cli board search`")
 
-	res, err := board.Search(context.Background(), &rpc.BoardSearchRequest{
+	res, err := srv.BoardSearch(ctx, &rpc.BoardSearchRequest{
 		Instance:            inst,
 		SearchArgs:          strings.Join(args, " "),
 		IncludeHiddenBoards: showHiddenBoard,
 	})
 	if err != nil {
-		feedback.Fatal(tr("Error searching boards: %v", err), feedback.ErrGeneric)
+		feedback.Fatal(i18n.Tr("Error searching boards: %v", err), feedback.ErrGeneric)
 	}
 
 	feedback.PrintResult(searchResults{result.NewBoardListItems(res.GetBoards())})
@@ -80,7 +82,7 @@ func (r searchResults) String() string {
 	}
 
 	t := table.New()
-	t.SetHeader(tr("Board Name"), tr("FQBN"), tr("Platform ID"), "")
+	t.SetHeader(i18n.Tr("Board Name"), i18n.Tr("FQBN"), i18n.Tr("Platform ID"), "")
 
 	sort.Slice(r.Boards, func(i, j int) bool {
 		return r.Boards[i].Name < r.Boards[j].Name
@@ -89,7 +91,7 @@ func (r searchResults) String() string {
 	for _, item := range r.Boards {
 		hidden := ""
 		if item.IsHidden {
-			hidden = tr("(hidden)")
+			hidden = i18n.Tr("(hidden)")
 		}
 		t.AddRow(item.Name, item.Fqbn, item.Platform.Metadata.Id, hidden)
 	}

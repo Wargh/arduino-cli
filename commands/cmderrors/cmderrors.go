@@ -26,8 +26,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-var tr = i18n.Tr
-
 func composeErrorMsg(msg string, cause error) string {
 	if cause == nil {
 		return msg
@@ -37,19 +35,19 @@ func composeErrorMsg(msg string, cause error) string {
 
 // CommandError is an error that may be converted into a gRPC status.
 type CommandError interface {
-	// ToRPCStatus convertes the error into a *status.Status
-	ToRPCStatus() *status.Status
+	// GRPCStatus convertes the error into a *status.Status
+	GRPCStatus() *status.Status
 }
 
 // InvalidInstanceError is returned if the instance used in the command is not valid.
 type InvalidInstanceError struct{}
 
 func (e *InvalidInstanceError) Error() string {
-	return tr("Invalid instance")
+	return i18n.Tr("Invalid instance")
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *InvalidInstanceError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *InvalidInstanceError) GRPCStatus() *status.Status {
 	return status.New(codes.InvalidArgument, e.Error())
 }
 
@@ -59,11 +57,11 @@ type InvalidFQBNError struct {
 }
 
 func (e *InvalidFQBNError) Error() string {
-	return composeErrorMsg(tr("Invalid FQBN"), e.Cause)
+	return composeErrorMsg(i18n.Tr("Invalid FQBN"), e.Cause)
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *InvalidFQBNError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *InvalidFQBNError) GRPCStatus() *status.Status {
 	return status.New(codes.InvalidArgument, e.Error())
 }
 
@@ -77,11 +75,11 @@ type InvalidURLError struct {
 }
 
 func (e *InvalidURLError) Error() string {
-	return composeErrorMsg(tr("Invalid URL"), e.Cause)
+	return composeErrorMsg(i18n.Tr("Invalid URL"), e.Cause)
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *InvalidURLError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *InvalidURLError) GRPCStatus() *status.Status {
 	return status.New(codes.InvalidArgument, e.Error())
 }
 
@@ -95,11 +93,11 @@ type InvalidLibraryError struct {
 }
 
 func (e *InvalidLibraryError) Error() string {
-	return composeErrorMsg(tr("Invalid library"), e.Cause)
+	return composeErrorMsg(i18n.Tr("Invalid library"), e.Cause)
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *InvalidLibraryError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *InvalidLibraryError) GRPCStatus() *status.Status {
 	return status.New(codes.InvalidArgument, e.Error())
 }
 
@@ -113,11 +111,11 @@ type InvalidVersionError struct {
 }
 
 func (e *InvalidVersionError) Error() string {
-	return composeErrorMsg(tr("Invalid version"), e.Cause)
+	return composeErrorMsg(i18n.Tr("Invalid version"), e.Cause)
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *InvalidVersionError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *InvalidVersionError) GRPCStatus() *status.Status {
 	return status.New(codes.InvalidArgument, e.Error())
 }
 
@@ -132,15 +130,15 @@ type NoBoardsDetectedError struct {
 }
 
 func (e *NoBoardsDetectedError) Error() string {
-	return tr(
+	return i18n.Tr(
 		"Please specify an FQBN. The board on port %[1]s with protocol %[2]s can't be identified",
 		e.Port.GetAddress(),
 		e.Port.GetProtocol(),
 	)
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *NoBoardsDetectedError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *NoBoardsDetectedError) GRPCStatus() *status.Status {
 	return status.New(codes.InvalidArgument, e.Error())
 }
 
@@ -152,15 +150,15 @@ type MultipleBoardsDetectedError struct {
 }
 
 func (e *MultipleBoardsDetectedError) Error() string {
-	return tr(
+	return i18n.Tr(
 		"Please specify an FQBN. Multiple possible boards detected on port %[1]s with protocol %[2]s",
 		e.Port.GetAddress(),
 		e.Port.GetProtocol(),
 	)
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *MultipleBoardsDetectedError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *MultipleBoardsDetectedError) GRPCStatus() *status.Status {
 	return status.New(codes.InvalidArgument, e.Error())
 }
 
@@ -168,11 +166,11 @@ func (e *MultipleBoardsDetectedError) ToRPCStatus() *status.Status {
 type MissingFQBNError struct{}
 
 func (e *MissingFQBNError) Error() string {
-	return tr("Missing FQBN (Fully Qualified Board Name)")
+	return i18n.Tr("Missing FQBN (Fully Qualified Board Name)")
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *MissingFQBNError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *MissingFQBNError) GRPCStatus() *status.Status {
 	return status.New(codes.InvalidArgument, e.Error())
 }
 
@@ -182,15 +180,15 @@ type UnknownFQBNError struct {
 }
 
 func (e *UnknownFQBNError) Error() string {
-	return composeErrorMsg(tr("Unknown FQBN"), e.Cause)
+	return composeErrorMsg(i18n.Tr("Unknown FQBN"), e.Cause)
 }
 
 func (e *UnknownFQBNError) Unwrap() error {
 	return e.Cause
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *UnknownFQBNError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *UnknownFQBNError) GRPCStatus() *status.Status {
 	return status.New(codes.NotFound, e.Error())
 }
 
@@ -201,15 +199,15 @@ type UnknownProfileError struct {
 }
 
 func (e *UnknownProfileError) Error() string {
-	return composeErrorMsg(tr("Profile '%s' not found", e.Profile), e.Cause)
+	return composeErrorMsg(i18n.Tr("Profile '%s' not found", e.Profile), e.Cause)
 }
 
 func (e *UnknownProfileError) Unwrap() error {
 	return e.Cause
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *UnknownProfileError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *UnknownProfileError) GRPCStatus() *status.Status {
 	return status.New(codes.NotFound, e.Error())
 }
 
@@ -219,15 +217,15 @@ type InvalidProfileError struct {
 }
 
 func (e *InvalidProfileError) Error() string {
-	return composeErrorMsg(tr("Invalid profile"), e.Cause)
+	return composeErrorMsg(i18n.Tr("Invalid profile"), e.Cause)
 }
 
 func (e *InvalidProfileError) Unwrap() error {
 	return e.Cause
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *InvalidProfileError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *InvalidProfileError) GRPCStatus() *status.Status {
 	return status.New(codes.FailedPrecondition, e.Error())
 }
 
@@ -235,11 +233,11 @@ func (e *InvalidProfileError) ToRPCStatus() *status.Status {
 type MissingPortAddressError struct{}
 
 func (e *MissingPortAddressError) Error() string {
-	return tr("Missing port address")
+	return i18n.Tr("Missing port address")
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *MissingPortAddressError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *MissingPortAddressError) GRPCStatus() *status.Status {
 	return status.New(codes.InvalidArgument, e.Error())
 }
 
@@ -247,11 +245,11 @@ func (e *MissingPortAddressError) ToRPCStatus() *status.Status {
 type MissingPortProtocolError struct{}
 
 func (e *MissingPortProtocolError) Error() string {
-	return tr("Missing port protocol")
+	return i18n.Tr("Missing port protocol")
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *MissingPortProtocolError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *MissingPortProtocolError) GRPCStatus() *status.Status {
 	return status.New(codes.InvalidArgument, e.Error())
 }
 
@@ -259,11 +257,11 @@ func (e *MissingPortProtocolError) ToRPCStatus() *status.Status {
 type MissingPortError struct{}
 
 func (e *MissingPortError) Error() string {
-	return tr("Missing port")
+	return i18n.Tr("Missing port")
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *MissingPortError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *MissingPortError) GRPCStatus() *status.Status {
 	return status.New(codes.InvalidArgument, e.Error())
 }
 
@@ -273,11 +271,11 @@ type NoMonitorAvailableForProtocolError struct {
 }
 
 func (e *NoMonitorAvailableForProtocolError) Error() string {
-	return tr("No monitor available for the port protocol %s", e.Protocol)
+	return i18n.Tr("No monitor available for the port protocol %s", e.Protocol)
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *NoMonitorAvailableForProtocolError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *NoMonitorAvailableForProtocolError) GRPCStatus() *status.Status {
 	return status.New(codes.InvalidArgument, e.Error())
 }
 
@@ -285,11 +283,11 @@ func (e *NoMonitorAvailableForProtocolError) ToRPCStatus() *status.Status {
 type MissingProgrammerError struct{}
 
 func (e *MissingProgrammerError) Error() string {
-	return tr("Missing programmer")
+	return i18n.Tr("Missing programmer")
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *MissingProgrammerError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *MissingProgrammerError) GRPCStatus() *status.Status {
 	s, _ := status.New(codes.InvalidArgument, e.Error()).WithDetails(&rpc.MissingProgrammerError{})
 	return s
 }
@@ -298,11 +296,11 @@ func (e *MissingProgrammerError) ToRPCStatus() *status.Status {
 type ProgrammerRequiredForUploadError struct{}
 
 func (e *ProgrammerRequiredForUploadError) Error() string {
-	return tr("A programmer is required to upload")
+	return i18n.Tr("A programmer is required to upload")
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *ProgrammerRequiredForUploadError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *ProgrammerRequiredForUploadError) GRPCStatus() *status.Status {
 	st, _ := status.
 		New(codes.InvalidArgument, e.Error()).
 		WithDetails(&rpc.ProgrammerIsRequiredForUploadError{})
@@ -320,8 +318,8 @@ func (ife *InitFailedError) Error() string {
 	return ife.Cause.Error()
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (ife *InitFailedError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (ife *InitFailedError) GRPCStatus() *status.Status {
 	st, _ := status.
 		New(ife.Code, ife.Cause.Error()).
 		WithDetails(&rpc.FailedInstanceInitError{
@@ -338,15 +336,15 @@ type ProgrammerNotFoundError struct {
 }
 
 func (e *ProgrammerNotFoundError) Error() string {
-	return composeErrorMsg(tr("Programmer '%s' not found", e.Programmer), e.Cause)
+	return composeErrorMsg(i18n.Tr("Programmer '%s' not found", e.Programmer), e.Cause)
 }
 
 func (e *ProgrammerNotFoundError) Unwrap() error {
 	return e.Cause
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *ProgrammerNotFoundError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *ProgrammerNotFoundError) GRPCStatus() *status.Status {
 	return status.New(codes.NotFound, e.Error())
 }
 
@@ -357,15 +355,15 @@ type MonitorNotFoundError struct {
 }
 
 func (e *MonitorNotFoundError) Error() string {
-	return composeErrorMsg(tr("Monitor '%s' not found", e.Monitor), e.Cause)
+	return composeErrorMsg(i18n.Tr("Monitor '%s' not found", e.Monitor), e.Cause)
 }
 
 func (e *MonitorNotFoundError) Unwrap() error {
 	return e.Cause
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *MonitorNotFoundError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *MonitorNotFoundError) GRPCStatus() *status.Status {
 	return status.New(codes.NotFound, e.Error())
 }
 
@@ -376,11 +374,11 @@ type InvalidPlatformPropertyError struct {
 }
 
 func (e *InvalidPlatformPropertyError) Error() string {
-	return tr("Invalid '%[1]s' property: %[2]s", e.Property, e.Value)
+	return i18n.Tr("Invalid '%[1]s' property: %[2]s", e.Property, e.Value)
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *InvalidPlatformPropertyError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *InvalidPlatformPropertyError) GRPCStatus() *status.Status {
 	return status.New(codes.FailedPrecondition, e.Error())
 }
 
@@ -390,11 +388,11 @@ type MissingPlatformPropertyError struct {
 }
 
 func (e *MissingPlatformPropertyError) Error() string {
-	return tr("Property '%s' is undefined", e.Property)
+	return i18n.Tr("Property '%s' is undefined", e.Property)
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *MissingPlatformPropertyError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *MissingPlatformPropertyError) GRPCStatus() *status.Status {
 	return status.New(codes.FailedPrecondition, e.Error())
 }
 
@@ -405,11 +403,11 @@ type PlatformNotFoundError struct {
 }
 
 func (e *PlatformNotFoundError) Error() string {
-	return composeErrorMsg(tr("Platform '%s' not found", e.Platform), e.Cause)
+	return composeErrorMsg(i18n.Tr("Platform '%s' not found", e.Platform), e.Cause)
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *PlatformNotFoundError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *PlatformNotFoundError) GRPCStatus() *status.Status {
 	return status.New(codes.FailedPrecondition, e.Error())
 }
 
@@ -423,11 +421,11 @@ type PlatformLoadingError struct {
 }
 
 func (e *PlatformLoadingError) Error() string {
-	return composeErrorMsg(tr("Error loading hardware platform"), e.Cause)
+	return composeErrorMsg(i18n.Tr("Error loading hardware platform"), e.Cause)
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *PlatformLoadingError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *PlatformLoadingError) GRPCStatus() *status.Status {
 	s, _ := status.New(codes.FailedPrecondition, e.Error()).
 		WithDetails(&rpc.PlatformLoadingError{})
 	return s
@@ -444,11 +442,11 @@ type LibraryNotFoundError struct {
 }
 
 func (e *LibraryNotFoundError) Error() string {
-	return composeErrorMsg(tr("Library '%s' not found", e.Library), e.Cause)
+	return composeErrorMsg(i18n.Tr("Library '%s' not found", e.Library), e.Cause)
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *LibraryNotFoundError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *LibraryNotFoundError) GRPCStatus() *status.Status {
 	return status.New(codes.FailedPrecondition, e.Error())
 }
 
@@ -463,11 +461,11 @@ type LibraryDependenciesResolutionFailedError struct {
 }
 
 func (e *LibraryDependenciesResolutionFailedError) Error() string {
-	return composeErrorMsg(tr("No valid dependencies solution found"), e.Cause)
+	return composeErrorMsg(i18n.Tr("No valid dependencies solution found"), e.Cause)
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *LibraryDependenciesResolutionFailedError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *LibraryDependenciesResolutionFailedError) GRPCStatus() *status.Status {
 	return status.New(codes.FailedPrecondition, e.Error())
 }
 
@@ -481,11 +479,11 @@ type PlatformAlreadyAtTheLatestVersionError struct {
 }
 
 func (e *PlatformAlreadyAtTheLatestVersionError) Error() string {
-	return tr("Platform '%s' is already at the latest version", e.Platform)
+	return i18n.Tr("Platform '%s' is already at the latest version", e.Platform)
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *PlatformAlreadyAtTheLatestVersionError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *PlatformAlreadyAtTheLatestVersionError) GRPCStatus() *status.Status {
 	st, _ := status.
 		New(codes.AlreadyExists, e.Error()).
 		WithDetails(&rpc.AlreadyAtLatestVersionError{})
@@ -496,11 +494,11 @@ func (e *PlatformAlreadyAtTheLatestVersionError) ToRPCStatus() *status.Status {
 type MissingSketchPathError struct{}
 
 func (e *MissingSketchPathError) Error() string {
-	return tr("Missing sketch path")
+	return i18n.Tr("Missing sketch path")
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *MissingSketchPathError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *MissingSketchPathError) GRPCStatus() *status.Status {
 	return status.New(codes.InvalidArgument, e.Error())
 }
 
@@ -510,7 +508,7 @@ type CantCreateSketchError struct {
 }
 
 func (e *CantCreateSketchError) Error() string {
-	return composeErrorMsg(tr("Can't create sketch"), e.Cause)
+	return composeErrorMsg(i18n.Tr("Can't create sketch"), e.Cause)
 }
 
 func (e *CantCreateSketchError) Unwrap() error {
@@ -523,7 +521,7 @@ type CantUpdateSketchError struct {
 }
 
 func (e *CantUpdateSketchError) Error() string {
-	return composeErrorMsg(tr("Can't update sketch"), e.Cause)
+	return composeErrorMsg(i18n.Tr("Can't update sketch"), e.Cause)
 }
 
 func (e *CantUpdateSketchError) Unwrap() error {
@@ -536,15 +534,15 @@ type CantOpenSketchError struct {
 }
 
 func (e *CantOpenSketchError) Error() string {
-	return composeErrorMsg(tr("Can't open sketch"), e.Cause)
+	return composeErrorMsg(i18n.Tr("Can't open sketch"), e.Cause)
 }
 
 func (e *CantOpenSketchError) Unwrap() error {
 	return e.Cause
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *CantOpenSketchError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *CantOpenSketchError) GRPCStatus() *status.Status {
 	return status.New(codes.NotFound, e.Error())
 }
 
@@ -562,8 +560,8 @@ func (e *FailedInstallError) Unwrap() error {
 	return e.Cause
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *FailedInstallError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *FailedInstallError) GRPCStatus() *status.Status {
 	return status.New(codes.Internal, e.Error())
 }
 
@@ -573,15 +571,15 @@ type FailedLibraryInstallError struct {
 }
 
 func (e *FailedLibraryInstallError) Error() string {
-	return composeErrorMsg(tr("Library install failed"), e.Cause)
+	return composeErrorMsg(i18n.Tr("Library install failed"), e.Cause)
 }
 
 func (e *FailedLibraryInstallError) Unwrap() error {
 	return e.Cause
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *FailedLibraryInstallError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *FailedLibraryInstallError) GRPCStatus() *status.Status {
 	return status.New(codes.Internal, e.Error())
 }
 
@@ -599,8 +597,8 @@ func (e *FailedUninstallError) Unwrap() error {
 	return e.Cause
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *FailedUninstallError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *FailedUninstallError) GRPCStatus() *status.Status {
 	return status.New(codes.Internal, e.Error())
 }
 
@@ -618,8 +616,8 @@ func (e *FailedDownloadError) Unwrap() error {
 	return e.Cause
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *FailedDownloadError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *FailedDownloadError) GRPCStatus() *status.Status {
 	return status.New(codes.Internal, e.Error())
 }
 
@@ -637,8 +635,8 @@ func (e *FailedUploadError) Unwrap() error {
 	return e.Cause
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *FailedUploadError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *FailedUploadError) GRPCStatus() *status.Status {
 	return status.New(codes.Internal, e.Error())
 }
 
@@ -656,8 +654,8 @@ func (e *FailedDebugError) Unwrap() error {
 	return e.Cause
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *FailedDebugError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *FailedDebugError) GRPCStatus() *status.Status {
 	return status.New(codes.Internal, e.Error())
 }
 
@@ -667,15 +665,15 @@ type FailedMonitorError struct {
 }
 
 func (e *FailedMonitorError) Error() string {
-	return composeErrorMsg(tr("Port monitor error"), e.Cause)
+	return composeErrorMsg(i18n.Tr("Port monitor error"), e.Cause)
 }
 
 func (e *FailedMonitorError) Unwrap() error {
 	return e.Cause
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *FailedMonitorError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *FailedMonitorError) GRPCStatus() *status.Status {
 	return status.New(codes.Internal, e.Error())
 }
 
@@ -693,8 +691,8 @@ func (e *CompileFailedError) Unwrap() error {
 	return e.Cause
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *CompileFailedError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *CompileFailedError) GRPCStatus() *status.Status {
 	return status.New(codes.Internal, e.Error())
 }
 
@@ -712,8 +710,8 @@ func (e *InvalidArgumentError) Unwrap() error {
 	return e.Cause
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *InvalidArgumentError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *InvalidArgumentError) GRPCStatus() *status.Status {
 	return status.New(codes.InvalidArgument, e.Error())
 }
 
@@ -731,8 +729,8 @@ func (e *NotFoundError) Unwrap() error {
 	return e.Cause
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *NotFoundError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *NotFoundError) GRPCStatus() *status.Status {
 	return status.New(codes.NotFound, e.Error())
 }
 
@@ -750,8 +748,8 @@ func (e *PermissionDeniedError) Unwrap() error {
 	return e.Cause
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *PermissionDeniedError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *PermissionDeniedError) GRPCStatus() *status.Status {
 	return status.New(codes.PermissionDenied, e.Error())
 }
 
@@ -769,8 +767,8 @@ func (e *UnavailableError) Unwrap() error {
 	return e.Cause
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *UnavailableError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *UnavailableError) GRPCStatus() *status.Status {
 	return status.New(codes.Unavailable, e.Error())
 }
 
@@ -780,15 +778,15 @@ type TempDirCreationFailedError struct {
 }
 
 func (e *TempDirCreationFailedError) Error() string {
-	return composeErrorMsg(tr("Cannot create temp dir"), e.Cause)
+	return composeErrorMsg(i18n.Tr("Cannot create temp dir"), e.Cause)
 }
 
 func (e *TempDirCreationFailedError) Unwrap() error {
 	return e.Cause
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *TempDirCreationFailedError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *TempDirCreationFailedError) GRPCStatus() *status.Status {
 	return status.New(codes.Unavailable, e.Error())
 }
 
@@ -798,15 +796,15 @@ type TempFileCreationFailedError struct {
 }
 
 func (e *TempFileCreationFailedError) Error() string {
-	return composeErrorMsg(tr("Cannot create temp file"), e.Cause)
+	return composeErrorMsg(i18n.Tr("Cannot create temp file"), e.Cause)
 }
 
 func (e *TempFileCreationFailedError) Unwrap() error {
 	return e.Cause
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *TempFileCreationFailedError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *TempFileCreationFailedError) GRPCStatus() *status.Status {
 	return status.New(codes.Unavailable, e.Error())
 }
 
@@ -817,15 +815,15 @@ type SignatureVerificationFailedError struct {
 }
 
 func (e *SignatureVerificationFailedError) Error() string {
-	return composeErrorMsg(tr("'%s' has an invalid signature", e.File), e.Cause)
+	return composeErrorMsg(i18n.Tr("'%s' has an invalid signature", e.File), e.Cause)
 }
 
 func (e *SignatureVerificationFailedError) Unwrap() error {
 	return e.Cause
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *SignatureVerificationFailedError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *SignatureVerificationFailedError) GRPCStatus() *status.Status {
 	return status.New(codes.Unavailable, e.Error())
 }
 
@@ -838,12 +836,12 @@ type MultiplePlatformsError struct {
 }
 
 func (e *MultiplePlatformsError) Error() string {
-	return tr("Found %d platforms matching \"%s\": %s",
+	return i18n.Tr("Found %d platforms matching \"%s\": %s",
 		len(e.Platforms), e.UserPlatform, strings.Join(e.Platforms, ", "))
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *MultiplePlatformsError) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *MultiplePlatformsError) GRPCStatus() *status.Status {
 	return status.New(codes.InvalidArgument, e.Error())
 }
 
@@ -857,7 +855,7 @@ type MultipleLibraryInstallDetected struct {
 }
 
 func (e *MultipleLibraryInstallDetected) Error() string {
-	res := tr("The library %s has multiple installations:", e.LibName) + "\n"
+	res := i18n.Tr("The library %s has multiple installations:", e.LibName) + "\n"
 	for _, lib := range e.LibsDir {
 		res += fmt.Sprintf("- %s\n", lib)
 	}
@@ -865,8 +863,8 @@ func (e *MultipleLibraryInstallDetected) Error() string {
 	return res
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *MultipleLibraryInstallDetected) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *MultipleLibraryInstallDetected) GRPCStatus() *status.Status {
 	return status.New(codes.InvalidArgument, e.Error())
 }
 
@@ -875,11 +873,11 @@ type InstanceNeedsReinitialization struct {
 }
 
 func (e *InstanceNeedsReinitialization) Error() string {
-	return tr("The instance is no longer valid and needs to be reinitialized")
+	return i18n.Tr("The instance is no longer valid and needs to be reinitialized")
 }
 
-// ToRPCStatus converts the error into a *status.Status
-func (e *InstanceNeedsReinitialization) ToRPCStatus() *status.Status {
+// GRPCStatus converts the error into a *status.Status
+func (e *InstanceNeedsReinitialization) GRPCStatus() *status.Status {
 	st, _ := status.
 		New(codes.InvalidArgument, e.Error()).
 		WithDetails(&rpc.InstanceNeedsReinitializationError{})

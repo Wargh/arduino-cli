@@ -109,10 +109,10 @@ func NewArduinoCliWithinEnvironment(env *Environment, config *ArduinoCLIConfig) 
 	}
 
 	cli.cliEnvVars = map[string]string{
-		"LANG":                   "en",
-		"ARDUINO_DATA_DIR":       cli.dataDir.String(),
-		"ARDUINO_DOWNLOADS_DIR":  cli.stagingDir.String(),
-		"ARDUINO_SKETCHBOOK_DIR": cli.sketchbookDir.String(),
+		"LANG":                                          "en",
+		"ARDUINO_DIRECTORIES_DATA":                      cli.dataDir.String(),
+		"ARDUINO_DIRECTORIES_DOWNLOADS":                 cli.stagingDir.String(),
+		"ARDUINO_DIRECTORIES_USER":                      cli.sketchbookDir.String(),
 		"ARDUINO_BUILD_CACHE_COMPILATIONS_BEFORE_PURGE": "0",
 	}
 	env.RegisterCleanUpCallback(cli.CleanUp)
@@ -326,7 +326,7 @@ func (cli *ArduinoCLI) run(stdoutBuff, stderrBuff io.Writer, stdinBuff io.Reader
 		defer fmt.Fprintln(terminalOut, "::endgroup::")
 	}
 
-	fmt.Fprintln(terminalOut, color.HiBlackString(">>> Running: ")+color.HiYellowString("%s %s", cli.path, strings.Join(args, " ")))
+	fmt.Fprintln(terminalOut, color.HiBlackString(">>> Running: ")+color.HiYellowString("%s %s %s", cli.path, strings.Join(args, " "), env))
 	cliProc, err := paths.NewProcessFromPath(cli.convertEnvForExecutils(env), cli.path, args...)
 	cli.t.NoError(err)
 	stdout, err := cliProc.StdoutPipe()
@@ -408,10 +408,22 @@ func (cli *ArduinoCLI) StartDaemon(verbose bool) string {
 	}
 	go _copy(os.Stdout, stdout)
 	go _copy(os.Stderr, stderr)
-	conn, err := grpc.Dial(cli.daemonAddr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
-	cli.t.NoError(err)
-	cli.daemonConn = conn
-	cli.daemonClient = commands.NewArduinoCoreServiceClient(conn)
+
+	// Await the CLI daemon to be ready
+	var connErr error
+	for retries := 5; retries > 0; retries-- {
+		time.Sleep(time.Second)
+
+		conn, err := grpc.NewClient(cli.daemonAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			connErr = err
+			continue
+		}
+		cli.daemonConn = conn
+		cli.daemonClient = commands.NewArduinoCoreServiceClient(conn)
+		break
+	}
+	cli.t.NoError(connErr)
 	return cli.daemonAddr
 }
 
@@ -444,8 +456,8 @@ func (cli *ArduinoCLI) Create() *ArduinoCLIInstance {
 // SetValue calls the "SetValue" gRPC method.
 func (cli *ArduinoCLI) SetValue(key, jsonData string) error {
 	req := &commands.SettingsSetValueRequest{
-		Key:      key,
-		JsonData: jsonData,
+		Key:          key,
+		EncodedValue: jsonData,
 	}
 	logCallf(">>> SetValue(%+v)\n", req)
 	_, err := cli.daemonClient.SettingsSetValue(context.Background(), req)

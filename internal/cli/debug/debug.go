@@ -22,9 +22,8 @@ import (
 	"os"
 	"os/signal"
 
+	"github.com/arduino/arduino-cli/commands"
 	"github.com/arduino/arduino-cli/commands/cmderrors"
-	"github.com/arduino/arduino-cli/commands/debug"
-	"github.com/arduino/arduino-cli/commands/sketch"
 	"github.com/arduino/arduino-cli/internal/cli/arguments"
 	"github.com/arduino/arduino-cli/internal/cli/feedback"
 	"github.com/arduino/arduino-cli/internal/cli/feedback/table"
@@ -36,10 +35,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var tr = i18n.Tr
-
 // NewCommand created a new `upload` command
-func NewCommand() *cobra.Command {
+func NewCommand(srv rpc.ArduinoCoreServiceServer) *cobra.Command {
 	var (
 		fqbnArg     arguments.Fqbn
 		portArgs    arguments.Port
@@ -52,28 +49,28 @@ func NewCommand() *cobra.Command {
 
 	debugCommand := &cobra.Command{
 		Use:     "debug",
-		Short:   tr("Debug Arduino sketches."),
-		Long:    tr("Debug Arduino sketches. (this command opens an interactive gdb session)"),
+		Short:   i18n.Tr("Debug Arduino sketches."),
+		Long:    i18n.Tr("Debug Arduino sketches. (this command opens an interactive gdb session)"),
 		Example: "  " + os.Args[0] + " debug -b arduino:samd:mkr1000 -P atmel_ice /home/user/Arduino/MySketch",
 		Args:    cobra.MaximumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			runDebugCommand(args, &portArgs, &fqbnArg, interpreter, importDir, &programmer, printInfo, &profileArg)
+			runDebugCommand(cmd.Context(), srv, args, &portArgs, &fqbnArg, interpreter, importDir, &programmer, printInfo, &profileArg)
 		},
 	}
 
-	debugCommand.AddCommand(newDebugCheckCommand())
-	fqbnArg.AddToCommand(debugCommand)
-	portArgs.AddToCommand(debugCommand)
-	programmer.AddToCommand(debugCommand)
-	profileArg.AddToCommand(debugCommand)
-	debugCommand.Flags().StringVar(&interpreter, "interpreter", "console", tr("Debug interpreter e.g.: %s", "console, mi, mi1, mi2, mi3"))
-	debugCommand.Flags().StringVarP(&importDir, "input-dir", "", "", tr("Directory containing binaries for debug."))
-	debugCommand.Flags().BoolVarP(&printInfo, "info", "I", false, tr("Show metadata about the debug session instead of starting the debugger."))
+	debugCommand.AddCommand(newDebugCheckCommand(srv))
+	fqbnArg.AddToCommand(debugCommand, srv)
+	portArgs.AddToCommand(debugCommand, srv)
+	programmer.AddToCommand(debugCommand, srv)
+	profileArg.AddToCommand(debugCommand, srv)
+	debugCommand.Flags().StringVar(&interpreter, "interpreter", "console", i18n.Tr("Debug interpreter e.g.: %s", "console, mi, mi1, mi2, mi3"))
+	debugCommand.Flags().StringVarP(&importDir, "input-dir", "", "", i18n.Tr("Directory containing binaries for debug."))
+	debugCommand.Flags().BoolVarP(&printInfo, "info", "I", false, i18n.Tr("Show metadata about the debug session instead of starting the debugger."))
 
 	return debugCommand
 }
 
-func runDebugCommand(args []string, portArgs *arguments.Port, fqbnArg *arguments.Fqbn,
+func runDebugCommand(ctx context.Context, srv rpc.ArduinoCoreServiceServer, args []string, portArgs *arguments.Port, fqbnArg *arguments.Fqbn,
 	interpreter string, importDir string, programmer *arguments.Programmer, printInfo bool, profileArg *arguments.Profile) {
 	logrus.Info("Executing `arduino-cli debug`")
 
@@ -83,30 +80,31 @@ func runDebugCommand(args []string, portArgs *arguments.Port, fqbnArg *arguments
 	}
 
 	sketchPath := arguments.InitSketchPath(path)
-	sk, err := sketch.LoadSketch(context.Background(), &rpc.LoadSketchRequest{SketchPath: sketchPath.String()})
+	resp, err := srv.LoadSketch(ctx, &rpc.LoadSketchRequest{SketchPath: sketchPath.String()})
 	if err != nil {
 		feedback.FatalError(err, feedback.ErrGeneric)
 	}
+	sk := resp.GetSketch()
 	feedback.WarnAboutDeprecatedFiles(sk)
 
 	var inst *rpc.Instance
 	var profile *rpc.SketchProfile
 
 	if profileArg.Get() == "" {
-		inst, profile = instance.CreateAndInitWithProfile(sk.GetDefaultProfile().GetName(), sketchPath)
+		inst, profile = instance.CreateAndInitWithProfile(ctx, srv, sk.GetDefaultProfile().GetName(), sketchPath)
 	} else {
-		inst, profile = instance.CreateAndInitWithProfile(profileArg.Get(), sketchPath)
+		inst, profile = instance.CreateAndInitWithProfile(ctx, srv, profileArg.Get(), sketchPath)
 	}
 
 	if fqbnArg.String() == "" {
 		fqbnArg.Set(profile.GetFqbn())
 	}
 
-	fqbn, port := arguments.CalculateFQBNAndPort(portArgs, fqbnArg, inst, sk.GetDefaultFqbn(), sk.GetDefaultPort(), sk.GetDefaultProtocol())
+	fqbn, port := arguments.CalculateFQBNAndPort(ctx, portArgs, fqbnArg, inst, srv, sk.GetDefaultFqbn(), sk.GetDefaultPort(), sk.GetDefaultProtocol())
 
 	prog := profile.GetProgrammer()
 	if prog == "" || programmer.GetProgrammer() != "" {
-		prog = programmer.String(inst, fqbn)
+		prog = programmer.String(ctx, inst, srv, fqbn)
 	}
 	if prog == "" {
 		prog = sk.GetDefaultProgrammer()
@@ -124,12 +122,12 @@ func runDebugCommand(args []string, portArgs *arguments.Port, fqbnArg *arguments
 
 	if printInfo {
 
-		if res, err := debug.GetDebugConfig(context.Background(), debugConfigRequested); err != nil {
+		if res, err := commands.GetDebugConfig(ctx, debugConfigRequested); err != nil {
 			errcode := feedback.ErrBadArgument
 			if errors.Is(err, &cmderrors.MissingProgrammerError{}) {
 				errcode = feedback.ErrMissingProgrammer
 			}
-			feedback.Fatal(tr("Error getting Debug info: %v", err), errcode)
+			feedback.Fatal(i18n.Tr("Error getting Debug info: %v", err), errcode)
 		} else {
 			feedback.PrintResult(newDebugInfoResult(res))
 		}
@@ -144,12 +142,12 @@ func runDebugCommand(args []string, portArgs *arguments.Port, fqbnArg *arguments
 		if err != nil {
 			feedback.FatalError(err, feedback.ErrBadArgument)
 		}
-		if _, err := debug.Debug(context.Background(), debugConfigRequested, in, out, ctrlc); err != nil {
+		if _, err := commands.Debug(ctx, debugConfigRequested, in, out, ctrlc); err != nil {
 			errcode := feedback.ErrGeneric
 			if errors.Is(err, &cmderrors.MissingProgrammerError{}) {
 				errcode = feedback.ErrMissingProgrammer
 			}
-			feedback.Fatal(tr("Error during Debug: %v", err), errcode)
+			feedback.Fatal(i18n.Tr("Error during Debug: %v", err), errcode)
 		}
 
 	}
@@ -182,7 +180,7 @@ func newDebugInfoResult(info *rpc.GetDebugConfigResponse) *debugInfoResult {
 	case "openocd":
 		var openocdConf rpc.DebugOpenOCDServerConfiguration
 		if err := info.GetServerConfiguration().UnmarshalTo(&openocdConf); err != nil {
-			feedback.Fatal(tr("Error during Debug: %v", err), feedback.ErrGeneric)
+			feedback.Fatal(i18n.Tr("Error during Debug: %v", err), feedback.ErrGeneric)
 		}
 		serverConfig = &openOcdServerConfigResult{
 			Path:       openocdConf.GetPath(),
@@ -220,24 +218,24 @@ func (r *debugInfoResult) String() string {
 	t := table.New()
 	green := color.New(color.FgHiGreen)
 	dimGreen := color.New(color.FgGreen)
-	t.AddRow(tr("Executable to debug"), table.NewCell(r.Executable, green))
-	t.AddRow(tr("Toolchain type"), table.NewCell(r.Toolchain, green))
-	t.AddRow(tr("Toolchain path"), table.NewCell(r.ToolchainPath, dimGreen))
-	t.AddRow(tr("Toolchain prefix"), table.NewCell(r.ToolchainPrefix, dimGreen))
+	t.AddRow(i18n.Tr("Executable to debug"), table.NewCell(r.Executable, green))
+	t.AddRow(i18n.Tr("Toolchain type"), table.NewCell(r.Toolchain, green))
+	t.AddRow(i18n.Tr("Toolchain path"), table.NewCell(r.ToolchainPath, dimGreen))
+	t.AddRow(i18n.Tr("Toolchain prefix"), table.NewCell(r.ToolchainPrefix, dimGreen))
 	if r.SvdFile != "" {
-		t.AddRow(tr("SVD file path"), table.NewCell(r.SvdFile, dimGreen))
+		t.AddRow(i18n.Tr("SVD file path"), table.NewCell(r.SvdFile, dimGreen))
 	}
 	switch r.Toolchain {
 	case "gcc":
 		// no options available at the moment...
 	default:
 	}
-	t.AddRow(tr("Server type"), table.NewCell(r.Server, green))
-	t.AddRow(tr("Server path"), table.NewCell(r.ServerPath, dimGreen))
+	t.AddRow(i18n.Tr("Server type"), table.NewCell(r.Server, green))
+	t.AddRow(i18n.Tr("Server path"), table.NewCell(r.ServerPath, dimGreen))
 
 	switch r.Server {
 	case "openocd":
-		t.AddRow(tr("Configuration options for %s", r.Server))
+		t.AddRow(i18n.Tr("Configuration options for %s", r.Server))
 		openocdConf := r.ServerConfig.(*openOcdServerConfigResult)
 		if openocdConf.Path != "" {
 			t.AddRow(" - Path", table.NewCell(openocdConf.Path, dimGreen))
@@ -253,7 +251,7 @@ func (r *debugInfoResult) String() string {
 	if custom := r.CustomConfigs; custom != nil {
 		for id, config := range custom {
 			configJson, _ := json.MarshalIndent(config, "", "  ")
-			t.AddRow(tr("Custom configuration for %s:", id))
+			t.AddRow(i18n.Tr("Custom configuration for %s:", id))
 			return t.Render() + "  " + string(configJson)
 		}
 	}

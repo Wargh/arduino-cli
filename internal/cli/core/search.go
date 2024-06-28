@@ -23,29 +23,29 @@ import (
 	"time"
 
 	"github.com/arduino/arduino-cli/commands"
-	"github.com/arduino/arduino-cli/commands/core"
 	"github.com/arduino/arduino-cli/internal/cli/feedback"
 	"github.com/arduino/arduino-cli/internal/cli/feedback/result"
 	"github.com/arduino/arduino-cli/internal/cli/feedback/table"
 	"github.com/arduino/arduino-cli/internal/cli/instance"
+	"github.com/arduino/arduino-cli/internal/i18n"
 	rpc "github.com/arduino/arduino-cli/rpc/cc/arduino/cli/commands/v1"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
-func initSearchCommand() *cobra.Command {
+func initSearchCommand(srv rpc.ArduinoCoreServiceServer) *cobra.Command {
 	var allVersions bool
 	searchCommand := &cobra.Command{
-		Use:     fmt.Sprintf("search <%s...>", tr("keywords")),
-		Short:   tr("Search for a core in Boards Manager."),
-		Long:    tr("Search for a core in Boards Manager using the specified keywords."),
+		Use:     fmt.Sprintf("search <%s...>", i18n.Tr("keywords")),
+		Short:   i18n.Tr("Search for a core in Boards Manager."),
+		Long:    i18n.Tr("Search for a core in Boards Manager using the specified keywords."),
 		Example: "  " + os.Args[0] + " core search MKRZero -a -v",
 		Args:    cobra.ArbitraryArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			runSearchCommand(cmd, args, allVersions)
+			runSearchCommand(cmd.Context(), srv, args, allVersions)
 		},
 	}
-	searchCommand.Flags().BoolVarP(&allVersions, "all", "a", false, tr("Show all available core versions."))
+	searchCommand.Flags().BoolVarP(&allVersions, "all", "a", false, i18n.Tr("Show all available core versions."))
 
 	return searchCommand
 }
@@ -53,20 +53,20 @@ func initSearchCommand() *cobra.Command {
 // indexUpdateInterval specifies the time threshold over which indexes are updated
 const indexUpdateInterval = 24 * time.Hour
 
-func runSearchCommand(cmd *cobra.Command, args []string, allVersions bool) {
-	inst := instance.CreateAndInit()
+func runSearchCommand(ctx context.Context, srv rpc.ArduinoCoreServiceServer, args []string, allVersions bool) {
+	inst := instance.CreateAndInit(ctx, srv)
 
-	res, err := commands.UpdateIndex(
-		context.Background(),
+	stream, res := commands.UpdateIndexStreamResponseToCallbackFunction(ctx, feedback.ProgressBar())
+	err := srv.UpdateIndex(
 		&rpc.UpdateIndexRequest{Instance: inst, UpdateIfOlderThanSecs: int64(indexUpdateInterval.Seconds())},
-		feedback.ProgressBar())
+		stream)
 	if err != nil {
 		feedback.FatalError(err, feedback.ErrGeneric)
 	}
-	for _, idxRes := range res.GetUpdatedIndexes() {
+	for _, idxRes := range res().GetUpdatedIndexes() {
 		if idxRes.GetStatus() == rpc.IndexUpdateReport_STATUS_UPDATED {
 			// At least one index has been updated, reinitialize the instance
-			instance.Init(inst)
+			instance.Init(ctx, srv, inst)
 			break
 		}
 	}
@@ -74,12 +74,12 @@ func runSearchCommand(cmd *cobra.Command, args []string, allVersions bool) {
 	arguments := strings.ToLower(strings.Join(args, " "))
 	logrus.Infof("Executing `arduino-cli core search` with args: '%s'", arguments)
 
-	resp, err := core.PlatformSearch(&rpc.PlatformSearchRequest{
+	resp, err := srv.PlatformSearch(ctx, &rpc.PlatformSearchRequest{
 		Instance:   inst,
 		SearchArgs: arguments,
 	})
 	if err != nil {
-		feedback.Fatal(tr("Error searching for platforms: %v", err), feedback.ErrGeneric)
+		feedback.Fatal(i18n.Tr("Error searching for platforms: %v", err), feedback.ErrGeneric)
 	}
 
 	coreslist := resp.GetSearchOutput()
@@ -110,11 +110,11 @@ func (sr searchResults) Data() interface{} {
 
 func (sr searchResults) String() string {
 	if len(sr.Platforms) == 0 {
-		return tr("No platforms matching your search.")
+		return i18n.Tr("No platforms matching your search.")
 	}
 
 	t := table.New()
-	t.SetHeader(tr("ID"), tr("Version"), tr("Name"))
+	t.SetHeader(i18n.Tr("ID"), i18n.Tr("Version"), i18n.Tr("Name"))
 
 	addRow := func(platform *result.PlatformSummary, release *result.PlatformRelease) {
 		if release == nil {

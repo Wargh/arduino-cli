@@ -17,10 +17,10 @@ package lib
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"strings"
 
-	"github.com/arduino/arduino-cli/commands/lib"
+	"github.com/arduino/arduino-cli/internal/i18n"
 	rpc "github.com/arduino/arduino-cli/rpc/cc/arduino/cli/commands/v1"
 )
 
@@ -46,12 +46,12 @@ func ParseLibraryReferenceArg(arg string) (*LibraryReferenceArg, error) {
 	// TODO: check library Name constraints
 	// TODO: check library Version constraints
 	if tokens[0] == "" {
-		return nil, fmt.Errorf(tr("invalid empty library name"))
+		return nil, errors.New(i18n.Tr("invalid empty library name"))
 	}
 	ret.Name = tokens[0]
 	if len(tokens) > 1 {
 		if tokens[1] == "" {
-			return nil, fmt.Errorf(tr("invalid empty library version: %s"), arg)
+			return nil, errors.New(i18n.Tr("invalid empty library version: %s", arg))
 		}
 		ret.Version = tokens[1]
 	}
@@ -74,9 +74,9 @@ func ParseLibraryReferenceArgs(args []string) ([]*LibraryReferenceArg, error) {
 
 // ParseLibraryReferenceArgAndAdjustCase parse a command line argument that reference a
 // library and possibly adjust the case of the name to match a library in the index
-func ParseLibraryReferenceArgAndAdjustCase(instance *rpc.Instance, arg string) (*LibraryReferenceArg, error) {
+func ParseLibraryReferenceArgAndAdjustCase(ctx context.Context, srv rpc.ArduinoCoreServiceServer, instance *rpc.Instance, arg string) (*LibraryReferenceArg, error) {
 	libRef, _ := ParseLibraryReferenceArg(arg)
-	res, err := lib.LibrarySearch(context.Background(), &rpc.LibrarySearchRequest{
+	res, err := srv.LibrarySearch(ctx, &rpc.LibrarySearchRequest{
 		Instance:   instance,
 		SearchArgs: libRef.Name,
 	})
@@ -98,10 +98,10 @@ func ParseLibraryReferenceArgAndAdjustCase(instance *rpc.Instance, arg string) (
 
 // ParseLibraryReferenceArgsAndAdjustCase is a convenient wrapper that operates on a slice of
 // strings and calls ParseLibraryReferenceArgAndAdjustCase for each of them. It returns at the first invalid argument.
-func ParseLibraryReferenceArgsAndAdjustCase(instance *rpc.Instance, args []string) ([]*LibraryReferenceArg, error) {
+func ParseLibraryReferenceArgsAndAdjustCase(ctx context.Context, srv rpc.ArduinoCoreServiceServer, instance *rpc.Instance, args []string) ([]*LibraryReferenceArg, error) {
 	ret := []*LibraryReferenceArg{}
 	for _, arg := range args {
-		if reference, err := ParseLibraryReferenceArgAndAdjustCase(instance, arg); err == nil {
+		if reference, err := ParseLibraryReferenceArgAndAdjustCase(ctx, srv, instance, arg); err == nil {
 			ret = append(ret, reference)
 		} else {
 			return nil, err

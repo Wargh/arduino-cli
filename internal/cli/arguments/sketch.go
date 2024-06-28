@@ -18,9 +18,9 @@ package arguments
 import (
 	"context"
 
-	"github.com/arduino/arduino-cli/commands/sketch"
 	f "github.com/arduino/arduino-cli/internal/algorithms"
 	"github.com/arduino/arduino-cli/internal/cli/feedback"
+	"github.com/arduino/arduino-cli/internal/i18n"
 	rpc "github.com/arduino/arduino-cli/rpc/cc/arduino/cli/commands/v1"
 	"github.com/arduino/go-paths-helper"
 	"github.com/sirupsen/logrus"
@@ -34,7 +34,7 @@ func InitSketchPath(path string) (sketchPath *paths.Path) {
 	} else {
 		wd, err := paths.Getwd()
 		if err != nil {
-			feedback.Fatal(tr("Couldn't get current working directory: %v", err), feedback.ErrGeneric)
+			feedback.Fatal(i18n.Tr("Couldn't get current working directory: %v", err), feedback.ErrGeneric)
 		}
 		logrus.Infof("Reading sketch from dir: %s", wd)
 		sketchPath = wd
@@ -44,7 +44,7 @@ func InitSketchPath(path string) (sketchPath *paths.Path) {
 
 // GetSketchProfiles is an helper function useful to autocomplete.
 // It returns the profile names set in the sketch.yaml
-func GetSketchProfiles(sketchPath string) []string {
+func GetSketchProfiles(ctx context.Context, srv rpc.ArduinoCoreServiceServer, sketchPath string) []string {
 	if sketchPath == "" {
 		if wd, _ := paths.Getwd(); wd != nil && wd.String() != "" {
 			sketchPath = wd.String()
@@ -52,10 +52,10 @@ func GetSketchProfiles(sketchPath string) []string {
 			return nil
 		}
 	}
-	sk, err := sketch.LoadSketch(context.Background(), &rpc.LoadSketchRequest{SketchPath: sketchPath})
+	resp, err := srv.LoadSketch(ctx, &rpc.LoadSketchRequest{SketchPath: sketchPath})
 	if err != nil {
 		return nil
 	}
-	profiles := sk.GetProfiles()
+	profiles := resp.GetSketch().GetProfiles()
 	return f.Map(profiles, (*rpc.SketchProfile).GetName)
 }

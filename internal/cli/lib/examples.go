@@ -22,11 +22,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/arduino/arduino-cli/commands/lib"
 	"github.com/arduino/arduino-cli/internal/cli/arguments"
 	"github.com/arduino/arduino-cli/internal/cli/feedback"
 	"github.com/arduino/arduino-cli/internal/cli/feedback/result"
 	"github.com/arduino/arduino-cli/internal/cli/instance"
+	"github.com/arduino/arduino-cli/internal/i18n"
 	rpc "github.com/arduino/arduino-cli/rpc/cc/arduino/cli/commands/v1"
 	"github.com/arduino/go-paths-helper"
 	"github.com/fatih/color"
@@ -38,39 +38,41 @@ var (
 	fqbn arguments.Fqbn
 )
 
-func initExamplesCommand() *cobra.Command {
+func initExamplesCommand(srv rpc.ArduinoCoreServiceServer) *cobra.Command {
 	examplesCommand := &cobra.Command{
-		Use:     fmt.Sprintf("examples [%s]", tr("LIBRARY_NAME")),
-		Short:   tr("Shows the list of the examples for libraries."),
-		Long:    tr("Shows the list of the examples for libraries. A name may be given as argument to search a specific library."),
+		Use:     fmt.Sprintf("examples [%s]", i18n.Tr("LIBRARY_NAME")),
+		Short:   i18n.Tr("Shows the list of the examples for libraries."),
+		Long:    i18n.Tr("Shows the list of the examples for libraries. A name may be given as argument to search a specific library."),
 		Example: "  " + os.Args[0] + " lib examples Wire",
 		Args:    cobra.MaximumNArgs(1),
-		Run:     runExamplesCommand,
+		Run: func(cmd *cobra.Command, args []string) {
+			runExamplesCommand(cmd.Context(), srv, args)
+		},
 		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-			return arguments.GetInstalledLibraries(), cobra.ShellCompDirectiveDefault
+			return arguments.GetInstalledLibraries(cmd.Context(), srv), cobra.ShellCompDirectiveDefault
 		},
 	}
-	fqbn.AddToCommand(examplesCommand)
+	fqbn.AddToCommand(examplesCommand, srv)
 	return examplesCommand
 }
 
-func runExamplesCommand(cmd *cobra.Command, args []string) {
-	instance := instance.CreateAndInit()
+func runExamplesCommand(ctx context.Context, srv rpc.ArduinoCoreServiceServer, args []string) {
 	logrus.Info("Executing `arduino-cli lib examples`")
+	instance := instance.CreateAndInit(ctx, srv)
 
 	name := ""
 	if len(args) > 0 {
 		name = args[0]
 	}
 
-	res, err := lib.LibraryList(context.Background(), &rpc.LibraryListRequest{
+	res, err := srv.LibraryList(ctx, &rpc.LibraryListRequest{
 		Instance: instance,
 		All:      true,
 		Name:     name,
 		Fqbn:     fqbn.String(),
 	})
 	if err != nil {
-		feedback.Fatal(tr("Error getting libraries info: %v", err), feedback.ErrGeneric)
+		feedback.Fatal(i18n.Tr("Error getting libraries info: %v", err), feedback.ErrGeneric)
 	}
 
 	found := []*libraryExamples{}
@@ -103,7 +105,7 @@ func (ir libraryExamplesResult) Data() interface{} {
 
 func (ir libraryExamplesResult) String() string {
 	if ir.Examples == nil || len(ir.Examples) == 0 {
-		return tr("No libraries found.")
+		return i18n.Tr("No libraries found.")
 	}
 
 	sort.Slice(ir.Examples, func(i, j int) bool {
@@ -118,7 +120,7 @@ func (ir libraryExamplesResult) String() string {
 		} else if lib.Library.Location != result.LibraryLocationUser {
 			name += " (" + string(lib.Library.Location) + ")"
 		}
-		r := tr("Examples for library %s", color.GreenString("%s", name)) + "\n"
+		r := i18n.Tr("Examples for library %s", color.GreenString("%s", name)) + "\n"
 		sort.Slice(lib.Examples, func(i, j int) bool {
 			return strings.ToLower(lib.Examples[i]) < strings.ToLower(lib.Examples[j])
 		})

@@ -23,6 +23,7 @@ import (
 
 	f "github.com/arduino/arduino-cli/internal/algorithms"
 	"github.com/arduino/arduino-cli/internal/arduino/builder/cpp"
+	"github.com/arduino/arduino-cli/internal/i18n"
 	"github.com/arduino/go-paths-helper"
 	"github.com/arduino/go-properties-orderedmap"
 )
@@ -30,6 +31,7 @@ import (
 // GCC performs a run of the gcc preprocess (macro/includes expansion). The function outputs the result
 // to targetFilePath. Returns the stdout/stderr of gcc if any.
 func GCC(
+	ctx context.Context,
 	sourceFilePath, targetFilePath *paths.Path,
 	includes paths.PathList, buildProperties *properties.Map,
 ) (Result, error) {
@@ -57,7 +59,7 @@ func GCC(
 
 	pattern := gccBuildProperties.Get(gccPreprocRecipeProperty)
 	if pattern == "" {
-		return Result{}, errors.New(tr("%s pattern is missing", gccPreprocRecipeProperty))
+		return Result{}, errors.New(i18n.Tr("%s pattern is missing", gccPreprocRecipeProperty))
 	}
 
 	commandLine := gccBuildProperties.ExpandPropsInString(pattern)
@@ -75,7 +77,7 @@ func GCC(
 	if err != nil {
 		return Result{}, err
 	}
-	stdout, stderr, err := proc.RunAndCaptureOutput(context.Background())
+	stdout, stderr, err := proc.RunAndCaptureOutput(ctx)
 
 	// Append gcc arguments to stdout
 	stdout = append([]byte(fmt.Sprintln(strings.Join(args, " "))), stdout...)

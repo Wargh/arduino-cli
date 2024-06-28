@@ -21,15 +21,13 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 
-	"github.com/arduino/arduino-cli/commands/daemon"
-	"github.com/arduino/arduino-cli/internal/cli/configuration"
 	"github.com/arduino/arduino-cli/internal/cli/feedback"
 	"github.com/arduino/arduino-cli/internal/i18n"
-	srv_commands "github.com/arduino/arduino-cli/rpc/cc/arduino/cli/commands/v1"
-	"github.com/arduino/arduino-cli/version"
+	rpc "github.com/arduino/arduino-cli/rpc/cc/arduino/cli/commands/v1"
 	"github.com/arduino/go-paths-helper"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -45,35 +43,59 @@ var (
 )
 
 // NewCommand created a new `daemon` command
-func NewCommand() *cobra.Command {
+func NewCommand(srv rpc.ArduinoCoreServiceServer, settings *rpc.Configuration) *cobra.Command {
+	var daemonPort string
 	daemonCommand := &cobra.Command{
 		Use:     "daemon",
-		Short:   tr("Run as a daemon on port: %s", configuration.Settings.GetString("daemon.port")),
-		Long:    tr("Running as a daemon the initialization of cores and libraries is done only once."),
+		Short:   i18n.Tr("Run the Arduino CLI as a gRPC daemon."),
 		Example: "  " + os.Args[0] + " daemon",
 		Args:    cobra.NoArgs,
-		Run:     runDaemonCommand,
+		PreRun: func(cmd *cobra.Command, args []string) {
+			// Bundled libraries support is enabled by default when running as a daemon
+			if settings.GetDirectories().GetBuiltin().GetLibraries() == "" {
+				defaultBuiltinLibDir := filepath.Join(settings.GetDirectories().GetData(), "libraries")
+				_, err := srv.SettingsSetValue(cmd.Context(), &rpc.SettingsSetValueRequest{
+					Key:          "directories.builtin.libraries",
+					ValueFormat:  "cli",
+					EncodedValue: defaultBuiltinLibDir,
+				})
+				if err != nil {
+					// Should never happen...
+					panic("Failed to set default value for directories.builtin.libraries: " + err.Error())
+				}
+			}
+		},
+		Run: func(cmd *cobra.Command, args []string) {
+			runDaemonCommand(srv, daemonPort)
+		},
 	}
-	daemonCommand.PersistentFlags().String("port", "", tr("The TCP port the daemon will listen to"))
-	configuration.Settings.BindPFlag("daemon.port", daemonCommand.PersistentFlags().Lookup("port"))
-	daemonCommand.Flags().BoolVar(&daemonize, "daemonize", false, tr("Do not terminate daemon process if the parent process dies"))
-	daemonCommand.Flags().BoolVar(&debug, "debug", false, tr("Enable debug logging of gRPC calls"))
-	daemonCommand.Flags().StringVar(&debugFile, "debug-file", "", tr("Append debug logging to the specified file"))
-	daemonCommand.Flags().StringSliceVar(&debugFilters, "debug-filter", []string{}, tr("Display only the provided gRPC calls"))
+	defaultDaemonPort := settings.GetDaemon().GetPort()
+
+	daemonCommand.Flags().StringVar(&daemonPort,
+		"port", defaultDaemonPort,
+		i18n.Tr("The TCP port the daemon will listen to"))
+	daemonCommand.Flags().BoolVar(&daemonize,
+		"daemonize", false,
+		i18n.Tr("Do not terminate daemon process if the parent process dies"))
+	daemonCommand.Flags().BoolVar(&debug,
+		"debug", false,
+		i18n.Tr("Enable debug logging of gRPC calls"))
+	daemonCommand.Flags().StringVar(&debugFile,
+		"debug-file", "",
+		i18n.Tr("Append debug logging to the specified file"))
+	daemonCommand.Flags().StringSliceVar(&debugFilters,
+		"debug-filter", []string{},
+		i18n.Tr("Display only the provided gRPC calls"))
 	return daemonCommand
 }
 
-func runDaemonCommand(cmd *cobra.Command, args []string) {
+func runDaemonCommand(srv rpc.ArduinoCoreServiceServer, daemonPort string) {
 	logrus.Info("Executing `arduino-cli daemon`")
 
-	// Bundled libraries support is enabled by default when running as a daemon
-	configuration.Settings.SetDefault("directories.builtin.Libraries", configuration.GetDefaultBuiltinLibrariesDir())
-
-	port := configuration.Settings.GetString("daemon.port")
 	gRPCOptions := []grpc.ServerOption{}
 	if debugFile != "" {
 		if !debug {
-			feedback.Fatal(tr("The flag --debug-file must be used with --debug."), feedback.ErrBadArgument)
+			feedback.Fatal(i18n.Tr("The flag --debug-file must be used with --debug."), feedback.ErrBadArgument)
 		}
 	}
 	if debug {
@@ -81,13 +103,13 @@ func runDaemonCommand(cmd *cobra.Command, args []string) {
 			outFile := paths.New(debugFile)
 			f, err := outFile.Append()
 			if err != nil {
-				feedback.Fatal(tr("Error opening debug logging file: %s", err), feedback.ErrGeneric)
+				feedback.Fatal(i18n.Tr("Error opening debug logging file: %s", err), feedback.ErrGeneric)
 			}
 			defer f.Close()
 			debugStdOut = f
 		} else {
 			if out, _, err := feedback.DirectStreams(); err != nil {
-				feedback.Fatal(tr("Can't write debug log: %s", err), feedback.ErrBadArgument)
+				feedback.Fatal(i18n.Tr("Can't write debug log: %s", err), feedback.ErrBadArgument)
 			} else {
 				debugStdOut = out
 			}
@@ -98,57 +120,53 @@ func runDaemonCommand(cmd *cobra.Command, args []string) {
 		)
 	}
 	s := grpc.NewServer(gRPCOptions...)
-	// Set specific user-agent for the daemon
-	configuration.Settings.Set("network.user_agent_ext", "daemon")
 
 	// register the commands service
-	srv_commands.RegisterArduinoCoreServiceServer(s, &daemon.ArduinoCoreServerImpl{
-		VersionString: version.VersionInfo.VersionString,
-	})
+	rpc.RegisterArduinoCoreServiceServer(s, srv)
 
 	if !daemonize {
 		// When parent process ends terminate also the daemon
 		go feedback.ExitWhenParentProcessEnds()
 	}
 
-	ip := "127.0.0.1"
-	lis, err := net.Listen("tcp", fmt.Sprintf("%s:%s", ip, port))
+	daemonIP := "127.0.0.1"
+	lis, err := net.Listen("tcp", fmt.Sprintf("%s:%s", daemonIP, daemonPort))
 	if err != nil {
 		// Invalid port, such as "Foo"
 		var dnsError *net.DNSError
 		if errors.As(err, &dnsError) {
-			feedback.Fatal(tr("Failed to listen on TCP port: %[1]s. %[2]s is unknown name.", port, dnsError.Name), feedback.ErrBadTCPPortArgument)
+			feedback.Fatal(i18n.Tr("Failed to listen on TCP port: %[1]s. %[2]s is unknown name.", daemonPort, dnsError.Name), feedback.ErrBadTCPPortArgument)
 		}
 		// Invalid port number, such as -1
 		var addrError *net.AddrError
 		if errors.As(err, &addrError) {
-			feedback.Fatal(tr("Failed to listen on TCP port: %[1]s. %[2]s is an invalid port.", port, addrError.Addr), feedback.ErrBadTCPPortArgument)
+			feedback.Fatal(i18n.Tr("Failed to listen on TCP port: %[1]s. %[2]s is an invalid port.", daemonPort, addrError.Addr), feedback.ErrBadTCPPortArgument)
 		}
 		// Port is already in use
 		var syscallErr *os.SyscallError
 		if errors.As(err, &syscallErr) && errors.Is(syscallErr.Err, syscall.EADDRINUSE) {
-			feedback.Fatal(tr("Failed to listen on TCP port: %s. Address already in use.", port), feedback.ErrFailedToListenToTCPPort)
+			feedback.Fatal(i18n.Tr("Failed to listen on TCP port: %s. Address already in use.", daemonPort), feedback.ErrFailedToListenToTCPPort)
 		}
-		feedback.Fatal(tr("Failed to listen on TCP port: %[1]s. Unexpected error: %[2]v", port, err), feedback.ErrFailedToListenToTCPPort)
+		feedback.Fatal(i18n.Tr("Failed to listen on TCP port: %[1]s. Unexpected error: %[2]v", daemonPort, err), feedback.ErrFailedToListenToTCPPort)
 	}
 
 	// We need to retrieve the port used only if the user did not specify it
 	// and let the OS choose it randomly, in all other cases we already know
 	// which port is used.
-	if port == "0" {
+	if daemonPort == "0" {
 		address := lis.Addr()
 		split := strings.Split(address.String(), ":")
 
 		if len(split) <= 1 {
-			feedback.Fatal(tr("Invalid TCP address: port is missing"), feedback.ErrBadTCPPortArgument)
+			feedback.Fatal(i18n.Tr("Invalid TCP address: port is missing"), feedback.ErrBadTCPPortArgument)
 		}
 
-		port = split[1]
+		daemonPort = split[1]
 	}
 
 	feedback.PrintResult(daemonResult{
-		IP:   ip,
-		Port: port,
+		IP:   daemonIP,
+		Port: daemonPort,
 	})
 
 	if err := s.Serve(lis); err != nil {
@@ -167,5 +185,5 @@ func (r daemonResult) Data() interface{} {
 
 func (r daemonResult) String() string {
 	j, _ := json.Marshal(r)
-	return fmt.Sprintln(tr("Daemon is now listening on %s:%s", r.IP, r.Port)) + fmt.Sprintln(string(j))
+	return fmt.Sprintln(i18n.Tr("Daemon is now listening on %s:%s", r.IP, r.Port)) + fmt.Sprintln(string(j))
 }

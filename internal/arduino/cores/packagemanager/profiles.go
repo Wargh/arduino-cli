@@ -16,6 +16,8 @@
 package packagemanager
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/url"
 
@@ -25,6 +27,7 @@ import (
 	"github.com/arduino/arduino-cli/internal/arduino/resources"
 	"github.com/arduino/arduino-cli/internal/arduino/sketch"
 	"github.com/arduino/arduino-cli/internal/cli/configuration"
+	"github.com/arduino/arduino-cli/internal/i18n"
 	rpc "github.com/arduino/arduino-cli/rpc/cc/arduino/cli/commands/v1"
 	"github.com/arduino/go-paths-helper"
 	"github.com/sirupsen/logrus"
@@ -32,7 +35,7 @@ import (
 
 // LoadHardwareForProfile load the hardware platforms for the given profile.
 // If installMissing is true then possibly missing tools and platforms will be downloaded and installed.
-func (pmb *Builder) LoadHardwareForProfile(p *sketch.Profile, installMissing bool, downloadCB rpc.DownloadProgressCB, taskCB rpc.TaskProgressCB) []error {
+func (pmb *Builder) LoadHardwareForProfile(ctx context.Context, p *sketch.Profile, installMissing bool, downloadCB rpc.DownloadProgressCB, taskCB rpc.TaskProgressCB, settings *configuration.Settings) []error {
 	pmb.profile = p
 
 	// Load required platforms
@@ -40,8 +43,8 @@ func (pmb *Builder) LoadHardwareForProfile(p *sketch.Profile, installMissing boo
 	var platformReleases []*cores.PlatformRelease
 	indexURLs := map[string]*url.URL{}
 	for _, platformRef := range p.Platforms {
-		if platformRelease, err := pmb.loadProfilePlatform(platformRef, installMissing, downloadCB, taskCB); err != nil {
-			merr = append(merr, fmt.Errorf("%s: %w", tr("loading required platform %s", platformRef), err))
+		if platformRelease, err := pmb.loadProfilePlatform(ctx, platformRef, installMissing, downloadCB, taskCB, settings); err != nil {
+			merr = append(merr, fmt.Errorf("%s: %w", i18n.Tr("loading required platform %s", platformRef), err))
 			logrus.WithField("platform", platformRef).WithError(err).Debugf("Error loading platform for profile")
 		} else {
 			platformReleases = append(platformReleases, platformRelease)
@@ -56,8 +59,8 @@ func (pmb *Builder) LoadHardwareForProfile(p *sketch.Profile, installMissing boo
 
 		for _, toolDep := range platformRelease.ToolDependencies {
 			indexURL := indexURLs[toolDep.ToolPackager]
-			if err := pmb.loadProfileTool(toolDep, indexURL, installMissing, downloadCB, taskCB); err != nil {
-				merr = append(merr, fmt.Errorf("%s: %w", tr("loading required tool %s", toolDep), err))
+			if err := pmb.loadProfileTool(ctx, toolDep, indexURL, installMissing, downloadCB, taskCB, settings); err != nil {
+				merr = append(merr, fmt.Errorf("%s: %w", i18n.Tr("loading required tool %s", toolDep), err))
 				logrus.WithField("tool", toolDep).WithField("index_url", indexURL).WithError(err).Debugf("Error loading tool for profile")
 			} else {
 				logrus.WithField("tool", toolDep).WithField("index_url", indexURL).Debugf("Loaded tool for profile")
@@ -68,34 +71,34 @@ func (pmb *Builder) LoadHardwareForProfile(p *sketch.Profile, installMissing boo
 	return merr
 }
 
-func (pmb *Builder) loadProfilePlatform(platformRef *sketch.ProfilePlatformReference, installMissing bool, downloadCB rpc.DownloadProgressCB, taskCB rpc.TaskProgressCB) (*cores.PlatformRelease, error) {
+func (pmb *Builder) loadProfilePlatform(ctx context.Context, platformRef *sketch.ProfilePlatformReference, installMissing bool, downloadCB rpc.DownloadProgressCB, taskCB rpc.TaskProgressCB, settings *configuration.Settings) (*cores.PlatformRelease, error) {
 	targetPackage := pmb.packages.GetOrCreatePackage(platformRef.Packager)
 	platform := targetPackage.GetOrCreatePlatform(platformRef.Architecture)
 	release := platform.GetOrCreateRelease(platformRef.Version)
 
 	uid := platformRef.InternalUniqueIdentifier()
-	destDir := configuration.ProfilesCacheDir(configuration.Settings).Join(uid)
+	destDir := settings.ProfilesCacheDir().Join(uid)
 	if !destDir.IsDir() && installMissing {
 		// Try installing the missing platform
-		if err := pmb.installMissingProfilePlatform(platformRef, destDir, downloadCB, taskCB); err != nil {
+		if err := pmb.installMissingProfilePlatform(ctx, platformRef, destDir, downloadCB, taskCB); err != nil {
 			return nil, err
 		}
 	}
 	return release, pmb.loadPlatformRelease(release, destDir)
 }
 
-func (pmb *Builder) installMissingProfilePlatform(platformRef *sketch.ProfilePlatformReference, destDir *paths.Path, downloadCB rpc.DownloadProgressCB, taskCB rpc.TaskProgressCB) error {
+func (pmb *Builder) installMissingProfilePlatform(ctx context.Context, platformRef *sketch.ProfilePlatformReference, destDir *paths.Path, downloadCB rpc.DownloadProgressCB, taskCB rpc.TaskProgressCB) error {
 	// Instantiate a temporary package manager only for platform installation
 	_ = pmb.tempDir.MkdirAll()
 	tmp, err := paths.MkTempDir(pmb.tempDir.String(), "")
 	if err != nil {
 		return fmt.Errorf("installing missing platform: could not create temp dir %s", err)
 	}
-	tmpPmb := NewBuilder(tmp, tmp, pmb.DownloadDir, tmp, pmb.userAgent)
+	tmpPmb := NewBuilder(tmp, tmp, nil, pmb.DownloadDir, tmp, pmb.userAgent, pmb.downloaderConfig)
 	defer tmp.RemoveAll()
 
 	// Download the main index and parse it
-	taskCB(&rpc.TaskProgress{Name: tr("Downloading platform %s", platformRef)})
+	taskCB(&rpc.TaskProgress{Name: i18n.Tr("Downloading platform %s", platformRef)})
 	defaultIndexURL, _ := url.Parse(globals.DefaultIndexURL)
 	indexesToDownload := []*url.URL{defaultIndexURL}
 	if platformRef.PlatformIndexURL != nil {
@@ -103,13 +106,13 @@ func (pmb *Builder) installMissingProfilePlatform(platformRef *sketch.ProfilePla
 	}
 	for _, indexURL := range indexesToDownload {
 		indexResource := resources.IndexResource{URL: indexURL}
-		if err := indexResource.Download(tmpPmb.IndexDir, downloadCB); err != nil {
-			taskCB(&rpc.TaskProgress{Name: tr("Error downloading %s", indexURL)})
-			return &cmderrors.FailedDownloadError{Message: tr("Error downloading %s", indexURL), Cause: err}
+		if err := indexResource.Download(ctx, tmpPmb.IndexDir, downloadCB, pmb.downloaderConfig); err != nil {
+			taskCB(&rpc.TaskProgress{Name: i18n.Tr("Error downloading %s", indexURL)})
+			return &cmderrors.FailedDownloadError{Message: i18n.Tr("Error downloading %s", indexURL), Cause: err}
 		}
 		if err := tmpPmb.LoadPackageIndex(indexURL); err != nil {
-			taskCB(&rpc.TaskProgress{Name: tr("Error loading index %s", indexURL)})
-			return &cmderrors.FailedInstallError{Message: tr("Error loading index %s", indexURL), Cause: err}
+			taskCB(&rpc.TaskProgress{Name: i18n.Tr("Error loading index %s", indexURL)})
+			return &cmderrors.FailedInstallError{Message: i18n.Tr("Error loading index %s", indexURL), Cause: err}
 		}
 	}
 
@@ -121,36 +124,36 @@ func (pmb *Builder) installMissingProfilePlatform(platformRef *sketch.ProfilePla
 	tmpPme, tmpRelease := tmpPm.NewExplorer()
 	defer tmpRelease()
 
-	if err := tmpPme.DownloadPlatformRelease(tmpPlatformRelease, nil, downloadCB); err != nil {
-		taskCB(&rpc.TaskProgress{Name: tr("Error downloading platform %s", tmpPlatformRelease)})
-		return &cmderrors.FailedInstallError{Message: tr("Error downloading platform %s", tmpPlatformRelease), Cause: err}
+	if err := tmpPme.DownloadPlatformRelease(ctx, tmpPlatformRelease, downloadCB); err != nil {
+		taskCB(&rpc.TaskProgress{Name: i18n.Tr("Error downloading platform %s", tmpPlatformRelease)})
+		return &cmderrors.FailedInstallError{Message: i18n.Tr("Error downloading platform %s", tmpPlatformRelease), Cause: err}
 	}
 	taskCB(&rpc.TaskProgress{Completed: true})
 
 	// Perform install
-	taskCB(&rpc.TaskProgress{Name: tr("Installing platform %s", tmpPlatformRelease)})
+	taskCB(&rpc.TaskProgress{Name: i18n.Tr("Installing platform %s", tmpPlatformRelease)})
 	if err := tmpPme.InstallPlatformInDirectory(tmpPlatformRelease, destDir); err != nil {
-		taskCB(&rpc.TaskProgress{Name: tr("Error installing platform %s", tmpPlatformRelease)})
-		return &cmderrors.FailedInstallError{Message: tr("Error installing platform %s", tmpPlatformRelease), Cause: err}
+		taskCB(&rpc.TaskProgress{Name: i18n.Tr("Error installing platform %s", tmpPlatformRelease)})
+		return &cmderrors.FailedInstallError{Message: i18n.Tr("Error installing platform %s", tmpPlatformRelease), Cause: err}
 	}
 	taskCB(&rpc.TaskProgress{Completed: true})
 	return nil
 }
 
-func (pmb *Builder) loadProfileTool(toolRef *cores.ToolDependency, indexURL *url.URL, installMissing bool, downloadCB rpc.DownloadProgressCB, taskCB rpc.TaskProgressCB) error {
+func (pmb *Builder) loadProfileTool(ctx context.Context, toolRef *cores.ToolDependency, indexURL *url.URL, installMissing bool, downloadCB rpc.DownloadProgressCB, taskCB rpc.TaskProgressCB, settings *configuration.Settings) error {
 	targetPackage := pmb.packages.GetOrCreatePackage(toolRef.ToolPackager)
 	tool := targetPackage.GetOrCreateTool(toolRef.ToolName)
 
 	uid := toolRef.InternalUniqueIdentifier(indexURL)
-	destDir := configuration.ProfilesCacheDir(configuration.Settings).Join(uid)
+	destDir := settings.ProfilesCacheDir().Join(uid)
 
 	if !destDir.IsDir() && installMissing {
 		// Try installing the missing tool
 		toolRelease := tool.GetOrCreateRelease(toolRef.ToolVersion)
 		if toolRelease == nil {
-			return &cmderrors.InvalidVersionError{Cause: fmt.Errorf(tr("version %s not found", toolRef.ToolVersion))}
+			return &cmderrors.InvalidVersionError{Cause: errors.New(i18n.Tr("version %s not found", toolRef.ToolVersion))}
 		}
-		if err := pmb.installMissingProfileTool(toolRelease, destDir, downloadCB, taskCB); err != nil {
+		if err := pmb.installMissingProfileTool(ctx, toolRelease, destDir, downloadCB, taskCB); err != nil {
 			return err
 		}
 	}
@@ -158,7 +161,7 @@ func (pmb *Builder) loadProfileTool(toolRef *cores.ToolDependency, indexURL *url
 	return pmb.loadToolReleaseFromDirectory(tool, toolRef.ToolVersion, destDir)
 }
 
-func (pmb *Builder) installMissingProfileTool(toolRelease *cores.ToolRelease, destDir *paths.Path, downloadCB rpc.DownloadProgressCB, taskCB rpc.TaskProgressCB) error {
+func (pmb *Builder) installMissingProfileTool(ctx context.Context, toolRelease *cores.ToolRelease, destDir *paths.Path, downloadCB rpc.DownloadProgressCB, taskCB rpc.TaskProgressCB) error {
 	// Instantiate a temporary package manager only for platform installation
 	tmp, err := paths.MkTempDir(destDir.Parent().String(), "")
 	if err != nil {
@@ -169,20 +172,20 @@ func (pmb *Builder) installMissingProfileTool(toolRelease *cores.ToolRelease, de
 	// Download the tool
 	toolResource := toolRelease.GetCompatibleFlavour()
 	if toolResource == nil {
-		return &cmderrors.InvalidVersionError{Cause: fmt.Errorf(tr("version %s not available for this operating system", toolRelease))}
+		return &cmderrors.InvalidVersionError{Cause: errors.New(i18n.Tr("version %s not available for this operating system", toolRelease))}
 	}
-	taskCB(&rpc.TaskProgress{Name: tr("Downloading tool %s", toolRelease)})
-	if err := toolResource.Download(pmb.DownloadDir, nil, toolRelease.String(), downloadCB, ""); err != nil {
-		taskCB(&rpc.TaskProgress{Name: tr("Error downloading tool %s", toolRelease)})
-		return &cmderrors.FailedInstallError{Message: tr("Error installing tool %s", toolRelease), Cause: err}
+	taskCB(&rpc.TaskProgress{Name: i18n.Tr("Downloading tool %s", toolRelease)})
+	if err := toolResource.Download(ctx, pmb.DownloadDir, pmb.downloaderConfig, toolRelease.String(), downloadCB, ""); err != nil {
+		taskCB(&rpc.TaskProgress{Name: i18n.Tr("Error downloading tool %s", toolRelease)})
+		return &cmderrors.FailedInstallError{Message: i18n.Tr("Error installing tool %s", toolRelease), Cause: err}
 	}
 	taskCB(&rpc.TaskProgress{Completed: true})
 
 	// Install tool
-	taskCB(&rpc.TaskProgress{Name: tr("Installing tool %s", toolRelease)})
+	taskCB(&rpc.TaskProgress{Name: i18n.Tr("Installing tool %s", toolRelease)})
 	if err := toolResource.Install(pmb.DownloadDir, tmp, destDir); err != nil {
-		taskCB(&rpc.TaskProgress{Name: tr("Error installing tool %s", toolRelease)})
-		return &cmderrors.FailedInstallError{Message: tr("Error installing tool %s", toolRelease), Cause: err}
+		taskCB(&rpc.TaskProgress{Name: i18n.Tr("Error installing tool %s", toolRelease)})
+		return &cmderrors.FailedInstallError{Message: i18n.Tr("Error installing tool %s", toolRelease), Cause: err}
 	}
 	taskCB(&rpc.TaskProgress{Completed: true})
 	return nil

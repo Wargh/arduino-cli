@@ -16,6 +16,7 @@
 package outdated
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sort"
@@ -33,32 +34,34 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var tr = i18n.Tr
-
 // NewCommand creates a new `outdated` command
-func NewCommand() *cobra.Command {
+func NewCommand(srv rpc.ArduinoCoreServiceServer) *cobra.Command {
 	outdatedCommand := &cobra.Command{
 		Use:   "outdated",
-		Short: tr("Lists cores and libraries that can be upgraded"),
-		Long: tr(`This commands shows a list of installed cores and/or libraries
+		Short: i18n.Tr("Lists cores and libraries that can be upgraded"),
+		Long: i18n.Tr(`This commands shows a list of installed cores and/or libraries
 that can be upgraded. If nothing needs to be updated the output is empty.`),
 		Example: "  " + os.Args[0] + " outdated\n",
 		Args:    cobra.NoArgs,
-		Run:     runOutdatedCommand,
+		Run: func(cmd *cobra.Command, args []string) {
+			runOutdatedCommand(cmd.Context(), srv)
+		},
 	}
 	return outdatedCommand
 }
 
-func runOutdatedCommand(cmd *cobra.Command, args []string) {
-	inst := instance.CreateAndInit()
+func runOutdatedCommand(ctx context.Context, srv rpc.ArduinoCoreServiceServer) {
 	logrus.Info("Executing `arduino-cli outdated`")
-	Outdated(inst)
+	inst := instance.CreateAndInit(ctx, srv)
+	Outdated(ctx, srv, inst)
 }
 
 // Outdated prints a list of outdated platforms and libraries
-func Outdated(inst *rpc.Instance) {
+func Outdated(ctx context.Context, srv rpc.ArduinoCoreServiceServer, inst *rpc.Instance) {
 	feedback.PrintResult(
-		newOutdatedResult(core.GetList(inst, false, true), lib.GetList(inst, []string{}, false, true)),
+		newOutdatedResult(
+			core.GetList(ctx, srv, inst, false, true),
+			lib.GetList(ctx, srv, inst, []string{}, false, true)),
 	)
 }
 
@@ -89,18 +92,18 @@ func (ir outdatedResult) Data() interface{} {
 
 func (ir outdatedResult) String() string {
 	if len(ir.Platforms) == 0 && len(ir.InstalledLibs) == 0 {
-		return tr("No outdated platforms or libraries found.")
+		return i18n.Tr("No outdated platforms or libraries found.")
 	}
 
 	// A table useful both for platforms and libraries, where some of the fields will be blank.
 	t := table.New()
 	t.SetHeader(
-		tr("ID"),
-		tr("Name"),
-		tr("Installed"),
-		tr("Latest"),
-		tr("Location"),
-		tr("Description"),
+		i18n.Tr("ID"),
+		i18n.Tr("Name"),
+		i18n.Tr("Installed"),
+		i18n.Tr("Latest"),
+		i18n.Tr("Location"),
+		i18n.Tr("Description"),
 	)
 	t.SetColumnWidthMode(2, table.Average)
 	t.SetColumnWidthMode(3, table.Average)
@@ -113,7 +116,7 @@ func (ir outdatedResult) String() string {
 			name = latest.Name
 		}
 		if p.Deprecated {
-			name = fmt.Sprintf("[%s] %s", tr("DEPRECATED"), name)
+			name = fmt.Sprintf("[%s] %s", i18n.Tr("DEPRECATED"), name)
 		}
 		t.AddRow(p.Id, name, p.InstalledVersion, p.LatestVersion, "", "")
 	}

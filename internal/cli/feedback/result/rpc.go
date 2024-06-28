@@ -27,8 +27,6 @@ import (
 	semver "go.bug.st/relaxed-semver"
 )
 
-var tr = i18n.Tr
-
 // NewPlatformSummary creates a new result.PlatformSummary from rpc.PlatformSummary
 func NewPlatformSummary(in *rpc.PlatformSummary) *PlatformSummary {
 	if in == nil {
@@ -119,7 +117,7 @@ func NewPlatformRelease(in *rpc.PlatformRelease) *PlatformRelease {
 	res := &PlatformRelease{
 		Name:            in.GetName(),
 		Version:         in.GetVersion(),
-		Type:            in.GetType(),
+		Types:           in.GetTypes(),
 		Installed:       in.GetInstalled(),
 		Boards:          boards,
 		Help:            help,
@@ -134,7 +132,7 @@ func NewPlatformRelease(in *rpc.PlatformRelease) *PlatformRelease {
 type PlatformRelease struct {
 	Name            string        `json:"name,omitempty"`
 	Version         string        `json:"version,omitempty"`
-	Type            []string      `json:"type,omitempty"`
+	Types           []string      `json:"types,omitempty"`
 	Installed       bool          `json:"installed,omitempty"`
 	Boards          []*Board      `json:"boards,omitempty"`
 	Help            *HelpResource `json:"help,omitempty"`
@@ -145,7 +143,7 @@ type PlatformRelease struct {
 
 func (p *PlatformRelease) FormatName() string {
 	if p.Deprecated {
-		return fmt.Sprintf("[%s] %s", tr("DEPRECATED"), p.Name)
+		return fmt.Sprintf("[%s] %s", i18n.Tr("DEPRECATED"), p.Name)
 	}
 	return p.Name
 }

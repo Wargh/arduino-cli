@@ -16,10 +16,12 @@
 package arguments
 
 import (
+	"context"
 	"strings"
 
 	"github.com/arduino/arduino-cli/commands/cmderrors"
 	"github.com/arduino/arduino-cli/internal/cli/feedback"
+	"github.com/arduino/arduino-cli/internal/i18n"
 	rpc "github.com/arduino/arduino-cli/rpc/cc/arduino/cli/commands/v1"
 	"github.com/spf13/cobra"
 )
@@ -33,13 +35,13 @@ type Fqbn struct {
 }
 
 // AddToCommand adds the flags used to set fqbn to the specified Command
-func (f *Fqbn) AddToCommand(cmd *cobra.Command) {
-	cmd.Flags().StringVarP(&f.fqbn, "fqbn", "b", "", tr("Fully Qualified Board Name, e.g.: arduino:avr:uno"))
+func (f *Fqbn) AddToCommand(cmd *cobra.Command, srv rpc.ArduinoCoreServiceServer) {
+	cmd.Flags().StringVarP(&f.fqbn, "fqbn", "b", "", i18n.Tr("Fully Qualified Board Name, e.g.: arduino:avr:uno"))
 	cmd.RegisterFlagCompletionFunc("fqbn", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		return GetInstalledBoards(), cobra.ShellCompDirectiveDefault
+		return GetInstalledBoards(cmd.Context(), srv), cobra.ShellCompDirectiveDefault
 	})
 	cmd.Flags().StringSliceVar(&f.boardOptions, "board-options", []string{},
-		tr("List of board options separated by commas. Or can be used multiple times for multiple options."))
+		i18n.Tr("List of board options separated by commas. Or can be used multiple times for multiple options."))
 }
 
 // String returns the fqbn with the board options if there are any
@@ -69,7 +71,7 @@ func (f *Fqbn) Set(fqbn string) {
 //   - the port is not found, in this case nil is returned
 //   - the FQBN autodetection fail, in this case the function prints an error and
 //     terminates the execution
-func CalculateFQBNAndPort(portArgs *Port, fqbnArg *Fqbn, instance *rpc.Instance, defaultFQBN, defaultAddress, defaultProtocol string) (string, *rpc.Port) {
+func CalculateFQBNAndPort(ctx context.Context, portArgs *Port, fqbnArg *Fqbn, instance *rpc.Instance, srv rpc.ArduinoCoreServiceServer, defaultFQBN, defaultAddress, defaultProtocol string) (string, *rpc.Port) {
 	fqbn := fqbnArg.String()
 	if fqbn == "" {
 		fqbn = defaultFQBN
@@ -78,16 +80,16 @@ func CalculateFQBNAndPort(portArgs *Port, fqbnArg *Fqbn, instance *rpc.Instance,
 		if portArgs == nil || portArgs.address == "" {
 			feedback.FatalError(&cmderrors.MissingFQBNError{}, feedback.ErrGeneric)
 		}
-		fqbn, port := portArgs.DetectFQBN(instance)
-		if fqbn == "" {
+		fqbn, port, err := portArgs.DetectFQBN(ctx, instance, srv)
+		if err != nil {
 			feedback.FatalError(&cmderrors.MissingFQBNError{}, feedback.ErrGeneric)
 		}
 		return fqbn, port
 	}
 
-	port, err := portArgs.GetPort(instance, defaultAddress, defaultProtocol)
+	port, err := portArgs.GetPort(ctx, instance, srv, defaultAddress, defaultProtocol)
 	if err != nil {
-		feedback.Fatal(tr("Error getting port metadata: %v", err), feedback.ErrGeneric)
+		feedback.Fatal(i18n.Tr("Error getting port metadata: %v", err), feedback.ErrGeneric)
 	}
 	return fqbn, port
 }

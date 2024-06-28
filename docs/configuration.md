@@ -35,6 +35,8 @@
 - `updater` - configuration options related to Arduino CLI updates
   - `enable_notification` - set to `false` to disable notifications of new Arduino CLI releases, defaults to `true`
 - `build_cache` configuration options related to the compilation cache
+  - `path` - the path to the build cache, default is `$TMP/arduino`.
+  - `extra_paths` - a list of paths to look for precompiled artifacts if not found on `build_cache.path` setting.
   - `compilations_before_purge` - interval, in number of compilations, at which the cache is purged, defaults to `10`.
     When `0` the cache is never purged.
   - `ttl` - cache expiration time of build folders. If the cache is hit by a compilation the corresponding build files
@@ -97,8 +99,7 @@ $ export ARDUINO_BOARD_MANAGER_ADDITIONAL_URLS="https://downloads.arduino.cc/pac
 
 ### Configuration file
 
-[`arduino-cli config init`][arduino-cli config init] creates or updates a configuration file with the current
-configuration settings.
+[`arduino-cli config init`][arduino-cli config init] creates a new empty configuration file.
 
 This allows saving the options set by command line flags or environment variables. For example:
 
@@ -106,29 +107,14 @@ This allows saving the options set by command line flags or environment variable
 arduino-cli config init --additional-urls https://downloads.arduino.cc/packages/package_staging_index.json
 ```
 
-#### File name
-
-The configuration file must be named `arduino-cli`, with the appropriate file extension for the file's format.
-
-#### Supported formats
-
-`arduino-cli config init` creates a YAML file, however a variety of common formats are supported:
-
-- [JSON]
-- [TOML]
-- [YAML]
-- [Java properties file]
-- [HCL]
-- envfile
-- [INI]
-
 #### Locations
 
-Configuration files in the following locations are recognized by Arduino CLI:
+The default configuration file is named `arduino-cli.yaml`. The configuration file is searched in the following
+locations, in order of priority:
 
 1. Location specified by the [`--config-file`][arduino cli command reference] command line flag
 1. Location specified by the `ARDUINO_CONFIG_FILE` environment variable
-1. Arduino CLI data directory (as configured by `directories.data`)
+1. Location specified by the `ARDUINO_DIRECTORIES_DATA` environment variable
 
 If multiple configuration files are present, the one highest on the above list is used. Configuration files are not
 combined.

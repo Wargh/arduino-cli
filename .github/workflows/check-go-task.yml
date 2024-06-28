@@ -114,7 +114,7 @@ jobs:
           version: 3.x
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v5
+        uses: golangci/golangci-lint-action@v6
         with:
           version: v1.57
 
@@ -237,7 +237,7 @@ jobs:
         module:
           - path: internal/arduino/discovery/discovery_client
           - path: rpc/internal/client_example
-          - path: commands/daemon/term_example
+          - path: commands/term_example
 
     steps:
       - name: Checkout repository

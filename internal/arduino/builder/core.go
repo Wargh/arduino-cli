@@ -19,7 +19,6 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 
@@ -27,6 +26,7 @@ import (
 	"github.com/arduino/arduino-cli/internal/arduino/builder/cpp"
 	"github.com/arduino/arduino-cli/internal/arduino/builder/internal/utils"
 	"github.com/arduino/arduino-cli/internal/buildcache"
+	"github.com/arduino/arduino-cli/internal/i18n"
 	"github.com/arduino/go-paths-helper"
 )
 
@@ -38,8 +38,8 @@ func (b *Builder) buildCore() error {
 
 	if b.coreBuildCachePath != nil {
 		if _, err := b.coreBuildCachePath.RelTo(b.buildPath); err != nil {
-			b.logger.Info(tr("Couldn't deeply cache core build: %[1]s", err))
-			b.logger.Info(tr("Running normal build of the core..."))
+			b.logger.Info(i18n.Tr("Couldn't deeply cache core build: %[1]s", err))
+			b.logger.Info(i18n.Tr("Running normal build of the core..."))
 			// TODO decide if we want to override this or not. (It's only used by the
 			// compileCore function).
 			b.coreBuildCachePath = nil
@@ -89,33 +89,55 @@ func (b *Builder) compileCore() (*paths.Path, paths.PathList, error) {
 			b.buildProperties.Get("compiler.optimization_flags"),
 			realCoreFolder,
 		)
+
+		canUseArchivedCore := func(archivedCore *paths.Path) bool {
+			if b.onlyUpdateCompilationDatabase || b.clean {
+				return false
+			}
+			if isOlder, err := utils.DirContentIsOlderThan(realCoreFolder, archivedCore); err != nil || !isOlder {
+				// Recreate the archive if ANY of the core files (including platform.txt) has changed
+				return false
+			}
+			if targetCoreFolder == nil || realCoreFolder.EquivalentTo(targetCoreFolder) {
+				return true
+			}
+			if isOlder, err := utils.DirContentIsOlderThan(targetCoreFolder, archivedCore); err != nil || !isOlder {
+				// Recreate the archive if ANY of the build core files (including platform.txt) has changed
+				return false
+			}
+			return true
+		}
+
+		// If there is an archived core in the current build cache, use it
 		targetArchivedCore = b.coreBuildCachePath.Join(archivedCoreName, "core.a")
-
-		if _, err := buildcache.New(b.coreBuildCachePath).GetOrCreate(archivedCoreName); errors.Is(err, buildcache.CreateDirErr) {
-			return nil, nil, fmt.Errorf(tr("creating core cache folder: %s", err))
-		}
-
-		var canUseArchivedCore bool
-		if b.onlyUpdateCompilationDatabase || b.clean {
-			canUseArchivedCore = false
-		} else if isOlder, err := utils.DirContentIsOlderThan(realCoreFolder, targetArchivedCore); err != nil || !isOlder {
-			// Recreate the archive if ANY of the core files (including platform.txt) has changed
-			canUseArchivedCore = false
-		} else if targetCoreFolder == nil || realCoreFolder.EquivalentTo(targetCoreFolder) {
-			canUseArchivedCore = true
-		} else if isOlder, err := utils.DirContentIsOlderThan(targetCoreFolder, targetArchivedCore); err != nil || !isOlder {
-			// Recreate the archive if ANY of the build core files (including platform.txt) has changed
-			canUseArchivedCore = false
-		} else {
-			canUseArchivedCore = true
-		}
-
-		if canUseArchivedCore {
+		if canUseArchivedCore(targetArchivedCore) {
+			// Extend the build cache expiration time
+			if _, err := buildcache.New(b.coreBuildCachePath).GetOrCreate(archivedCoreName); errors.Is(err, buildcache.CreateDirErr) {
+				return nil, nil, errors.New(i18n.Tr("creating core cache folder: %s", err))
+			}
 			// use archived core
 			if b.logger.Verbose() {
-				b.logger.Info(tr("Using precompiled core: %[1]s", targetArchivedCore))
+				b.logger.Info(i18n.Tr("Using precompiled core: %[1]s", targetArchivedCore))
 			}
 			return targetArchivedCore, variantObjectFiles, nil
+		}
+
+		// Otherwise try the extra build cache paths to see if there is a precompiled core
+		// that can be used
+		for _, extraCoreBuildCachePath := range b.extraCoreBuildCachePaths {
+			extraTargetArchivedCore := extraCoreBuildCachePath.Join(archivedCoreName, "core.a")
+			if canUseArchivedCore(extraTargetArchivedCore) {
+				// use archived core
+				if b.logger.Verbose() {
+					b.logger.Info(i18n.Tr("Using precompiled core: %[1]s", extraTargetArchivedCore))
+				}
+				return extraTargetArchivedCore, variantObjectFiles, nil
+			}
+		}
+
+		// Create the build cache folder for the core
+		if _, err := buildcache.New(b.coreBuildCachePath).GetOrCreate(archivedCoreName); errors.Is(err, buildcache.CreateDirErr) {
+			return nil, nil, errors.New(i18n.Tr("creating core cache folder: %s", err))
 		}
 	}
 
@@ -138,13 +160,13 @@ func (b *Builder) compileCore() (*paths.Path, paths.PathList, error) {
 		err := archiveFile.CopyTo(targetArchivedCore)
 		if b.logger.Verbose() {
 			if err == nil {
-				b.logger.Info(tr("Archiving built core (caching) in: %[1]s", targetArchivedCore))
+				b.logger.Info(i18n.Tr("Archiving built core (caching) in: %[1]s", targetArchivedCore))
 			} else if os.IsNotExist(err) {
-				b.logger.Info(tr("Unable to cache built core, please tell %[1]s maintainers to follow %[2]s",
+				b.logger.Info(i18n.Tr("Unable to cache built core, please tell %[1]s maintainers to follow %[2]s",
 					b.actualPlatform,
 					"https://arduino.github.io/arduino-cli/latest/platform-specification/#recipes-to-build-the-corea-archive-file"))
 			} else {
-				b.logger.Info(tr("Error archiving built core (caching) in %[1]s: %[2]s", targetArchivedCore, err))
+				b.logger.Info(i18n.Tr("Error archiving built core (caching) in %[1]s: %[2]s", targetArchivedCore, err))
 			}
 		}
 	}

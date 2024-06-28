@@ -24,6 +24,7 @@ import (
 
 	"github.com/arduino/arduino-cli/internal/arduino/builder/internal/utils"
 	"github.com/arduino/arduino-cli/internal/arduino/sketch"
+	"github.com/arduino/arduino-cli/internal/i18n"
 	"github.com/arduino/go-paths-helper"
 	"github.com/arduino/go-properties-orderedmap"
 )
@@ -31,6 +32,7 @@ import (
 // PreprocessSketchWithArduinoPreprocessor performs preprocessing of the arduino sketch
 // using arduino-preprocessor (https://github.com/arduino/arduino-preprocessor).
 func PreprocessSketchWithArduinoPreprocessor(
+	ctx context.Context,
 	sk *sketch.Sketch, buildPath *paths.Path, includeFolders paths.PathList,
 	lineOffset int, buildProperties *properties.Map, onlyUpdateCompilationDatabase bool,
 ) (*Result, error) {
@@ -42,7 +44,7 @@ func PreprocessSketchWithArduinoPreprocessor(
 
 	sourceFile := buildPath.Join("sketch", sk.MainFile.Base()+".cpp")
 	targetFile := buildPath.Join("preproc", "sketch_merged.cpp")
-	gccResult, err := GCC(sourceFile, targetFile, includeFolders, buildProperties)
+	gccResult, err := GCC(ctx, sourceFile, targetFile, includeFolders, buildProperties)
 	verboseOut.Write(gccResult.Stdout())
 	verboseOut.Write(gccResult.Stderr())
 	if err != nil {
@@ -59,7 +61,7 @@ func PreprocessSketchWithArduinoPreprocessor(
 	arduiniPreprocessorProperties.SetPath("source_file", targetFile)
 	pattern := arduiniPreprocessorProperties.Get("pattern")
 	if pattern == "" {
-		return nil, errors.New(tr("arduino-preprocessor pattern is missing"))
+		return nil, errors.New(i18n.Tr("arduino-preprocessor pattern is missing"))
 	}
 
 	commandLine := arduiniPreprocessorProperties.ExpandPropsInString(pattern)
@@ -78,7 +80,7 @@ func PreprocessSketchWithArduinoPreprocessor(
 	}
 
 	verboseOut.WriteString(commandLine)
-	commandStdOut, commandStdErr, err := command.RunAndCaptureOutput(context.Background())
+	commandStdOut, commandStdErr, err := command.RunAndCaptureOutput(ctx)
 	verboseOut.Write(commandStdErr)
 	if err != nil {
 		return &Result{args: gccResult.Args(), stdout: verboseOut.Bytes(), stderr: normalOut.Bytes()}, err

@@ -19,70 +19,34 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 
 	"github.com/arduino/arduino-cli/internal/cli/feedback"
+	"github.com/arduino/arduino-cli/internal/go-configmap"
 	"github.com/arduino/arduino-cli/internal/i18n"
-	paths "github.com/arduino/go-paths-helper"
 	"github.com/arduino/go-win32-utils"
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
-// Settings is a global instance of viper holding configurations for the CLI and the gRPC consumers
-var Settings *viper.Viper
-
-var tr = i18n.Tr
-
-// Init initialize defaults and read the configuration file.
-// Please note the logging system hasn't been configured yet,
-// so logging shouldn't be used here.
-func Init(configFile string) *viper.Viper {
-	// Create a new viper instance with default values for all the settings
-	settings := viper.New()
-	SetDefaults(settings)
-
-	// Set config name and config path
-	if configFilePath := paths.New(configFile); configFilePath != nil {
-		settings.SetConfigName(strings.TrimSuffix(configFilePath.Base(), configFilePath.Ext()))
-		settings.AddConfigPath(configFilePath.Parent().String())
-	} else {
-		configDir := settings.GetString("directories.Data")
-		// Get default data path if none was provided
-		if configDir == "" {
-			configDir = getDefaultArduinoDataDir()
-		}
-
-		settings.SetConfigName("arduino-cli")
-		settings.AddConfigPath(configDir)
-	}
-
-	// Attempt to read config file
-	if err := settings.ReadInConfig(); err != nil {
-		// ConfigFileNotFoundError is acceptable, anything else
-		// should be reported to the user
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			feedback.Warning(tr("Error reading config file: %v", err))
-		}
-	}
-
-	return settings
+// Settings contains the configuration of the Arduino CLI core service
+type Settings struct {
+	*configmap.Map
+	Defaults *configmap.Map
 }
 
-// BindFlags creates all the flags binding between the cobra Command and the instance of viper
-func BindFlags(cmd *cobra.Command, settings *viper.Viper) {
-	settings.BindPFlag("logging.level", cmd.Flag("log-level"))
-	settings.BindPFlag("logging.file", cmd.Flag("log-file"))
-	settings.BindPFlag("logging.format", cmd.Flag("log-format"))
-	settings.BindPFlag("board_manager.additional_urls", cmd.Flag("additional-urls"))
-	settings.BindPFlag("output.no_color", cmd.Flag("no-color"))
+// NewSettings creates a new instance of Settings with the default values set
+func NewSettings() *Settings {
+	res := &Settings{
+		Map:      configmap.New(),
+		Defaults: configmap.New(),
+	}
+	SetDefaults(res)
+	return res
 }
 
 // getDefaultArduinoDataDir returns the full path to the default arduino folder
 func getDefaultArduinoDataDir() string {
 	userHomeDir, err := os.UserHomeDir()
 	if err != nil {
-		feedback.Warning(tr("Unable to get user home dir: %v", err))
+		feedback.Warning(i18n.Tr("Unable to get user home dir: %v", err))
 		return "."
 	}
 
@@ -94,7 +58,7 @@ func getDefaultArduinoDataDir() string {
 	case "windows":
 		localAppDataPath, err := win32.GetLocalAppDataFolder()
 		if err != nil {
-			feedback.Warning(tr("Unable to get Local App Data Folder: %v", err))
+			feedback.Warning(i18n.Tr("Unable to get Local App Data Folder: %v", err))
 			return "."
 		}
 		return filepath.Join(localAppDataPath, "Arduino15")
@@ -107,7 +71,7 @@ func getDefaultArduinoDataDir() string {
 func getDefaultUserDir() string {
 	userHomeDir, err := os.UserHomeDir()
 	if err != nil {
-		feedback.Warning(tr("Unable to get user home dir: %v", err))
+		feedback.Warning(i18n.Tr("Unable to get user home dir: %v", err))
 		return "."
 	}
 
@@ -119,18 +83,13 @@ func getDefaultUserDir() string {
 	case "windows":
 		documentsPath, err := win32.GetDocumentsFolder()
 		if err != nil {
-			feedback.Warning(tr("Unable to get Documents Folder: %v", err))
+			feedback.Warning(i18n.Tr("Unable to get Documents Folder: %v", err))
 			return "."
 		}
 		return filepath.Join(documentsPath, "Arduino")
 	default:
 		return "."
 	}
-}
-
-// GetDefaultBuiltinLibrariesDir returns the full path to the default builtin libraries dir
-func GetDefaultBuiltinLibrariesDir() string {
-	return filepath.Join(getDefaultArduinoDataDir(), "libraries")
 }
 
 // FindConfigFileInArgsFallbackOnEnv returns the config file path using the
@@ -145,5 +104,14 @@ func FindConfigFileInArgsFallbackOnEnv(args []string) string {
 			}
 		}
 	}
-	return os.Getenv("ARDUINO_CONFIG_FILE")
+	if p, ok := os.LookupEnv("ARDUINO_CONFIG_FILE"); ok {
+		return p
+	}
+	if p, ok := os.LookupEnv("ARDUINO_DIRECTORIES_DATA"); ok {
+		return filepath.Join(p, "arduino-cli.yaml")
+	}
+	if p, ok := os.LookupEnv("ARDUINO_DATA_DIR"); ok {
+		return filepath.Join(p, "arduino-cli.yaml")
+	}
+	return filepath.Join(getDefaultArduinoDataDir(), "arduino-cli.yaml")
 }

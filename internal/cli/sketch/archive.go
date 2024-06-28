@@ -20,22 +20,22 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/arduino/arduino-cli/commands/sketch"
 	"github.com/arduino/arduino-cli/internal/cli/arguments"
 	"github.com/arduino/arduino-cli/internal/cli/feedback"
+	"github.com/arduino/arduino-cli/internal/i18n"
 	rpc "github.com/arduino/arduino-cli/rpc/cc/arduino/cli/commands/v1"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
 // initArchiveCommand creates a new `archive` command
-func initArchiveCommand() *cobra.Command {
+func initArchiveCommand(srv rpc.ArduinoCoreServiceServer) *cobra.Command {
 	var includeBuildDir, overwrite bool
 
 	archiveCommand := &cobra.Command{
-		Use:   fmt.Sprintf("archive <%s> <%s>", tr("sketchPath"), tr("archivePath")),
-		Short: tr("Creates a zip file containing all sketch files."),
-		Long:  tr("Creates a zip file containing all sketch files."),
+		Use:   fmt.Sprintf("archive <%s> <%s>", i18n.Tr("sketchPath"), i18n.Tr("archivePath")),
+		Short: i18n.Tr("Creates a zip file containing all sketch files."),
+		Long:  i18n.Tr("Creates a zip file containing all sketch files."),
 		Example: "" +
 			"  " + os.Args[0] + " archive\n" +
 			"  " + os.Args[0] + " archive .\n" +
@@ -43,18 +43,19 @@ func initArchiveCommand() *cobra.Command {
 			"  " + os.Args[0] + " archive /home/user/Arduino/MySketch\n" +
 			"  " + os.Args[0] + " archive /home/user/Arduino/MySketch /home/user/MySketchArchive.zip",
 		Args: cobra.MaximumNArgs(2),
-		Run:  func(cmd *cobra.Command, args []string) { runArchiveCommand(args, includeBuildDir, overwrite) },
+		Run: func(cmd *cobra.Command, args []string) {
+			runArchiveCommand(cmd.Context(), srv, args, includeBuildDir, overwrite)
+		},
 	}
 
-	archiveCommand.Flags().BoolVar(&includeBuildDir, "include-build-dir", false, tr("Includes %s directory in the archive.", "build"))
-	archiveCommand.Flags().BoolVarP(&overwrite, "overwrite", "f", false, tr("Overwrites an already existing archive"))
+	archiveCommand.Flags().BoolVar(&includeBuildDir, "include-build-dir", false, i18n.Tr("Includes %s directory in the archive.", "build"))
+	archiveCommand.Flags().BoolVarP(&overwrite, "overwrite", "f", false, i18n.Tr("Overwrites an already existing archive"))
 
 	return archiveCommand
 }
 
-func runArchiveCommand(args []string, includeBuildDir bool, overwrite bool) {
+func runArchiveCommand(ctx context.Context, srv rpc.ArduinoCoreServiceServer, args []string, includeBuildDir bool, overwrite bool) {
 	logrus.Info("Executing `arduino-cli sketch archive`")
-
 	sketchPathArg := ""
 	if len(args) > 0 {
 		sketchPathArg = args[0]
@@ -66,13 +67,14 @@ func runArchiveCommand(args []string, includeBuildDir bool, overwrite bool) {
 	}
 
 	sketchPath := arguments.InitSketchPath(sketchPathArg)
-	sk, err := sketch.LoadSketch(context.Background(), &rpc.LoadSketchRequest{SketchPath: sketchPath.String()})
+	resp, err := srv.LoadSketch(ctx, &rpc.LoadSketchRequest{SketchPath: sketchPath.String()})
 	if err != nil {
 		feedback.FatalError(err, feedback.ErrGeneric)
 	}
+	sk := resp.GetSketch()
 	feedback.WarnAboutDeprecatedFiles(sk)
 
-	if _, err := sketch.ArchiveSketch(context.Background(),
+	if _, err := srv.ArchiveSketch(ctx,
 		&rpc.ArchiveSketchRequest{
 			SketchPath:      sketchPath.String(),
 			ArchivePath:     archivePathArg,
@@ -80,6 +82,6 @@ func runArchiveCommand(args []string, includeBuildDir bool, overwrite bool) {
 			Overwrite:       overwrite,
 		},
 	); err != nil {
-		feedback.Fatal(tr("Error archiving: %v", err), feedback.ErrGeneric)
+		feedback.Fatal(i18n.Tr("Error archiving: %v", err), feedback.ErrGeneric)
 	}
 }

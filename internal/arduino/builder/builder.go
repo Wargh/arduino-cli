@@ -16,6 +16,7 @@
 package builder
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -33,6 +34,7 @@ import (
 	"github.com/arduino/arduino-cli/internal/arduino/libraries"
 	"github.com/arduino/arduino-cli/internal/arduino/libraries/librariesmanager"
 	"github.com/arduino/arduino-cli/internal/arduino/sketch"
+	"github.com/arduino/arduino-cli/internal/i18n"
 	rpc "github.com/arduino/arduino-cli/rpc/cc/arduino/cli/commands/v1"
 	"github.com/arduino/go-paths-helper"
 	"github.com/arduino/go-properties-orderedmap"
@@ -43,6 +45,8 @@ var ErrSketchCannotBeLocatedInBuildPath = errors.New("sketch cannot be located i
 
 // Builder is a Sketch builder.
 type Builder struct {
+	ctx context.Context
+
 	sketch          *sketch.Sketch
 	buildProperties *properties.Map
 
@@ -58,7 +62,8 @@ type Builder struct {
 	customBuildProperties []string
 
 	// core related
-	coreBuildCachePath *paths.Path
+	coreBuildCachePath       *paths.Path
+	extraCoreBuildCachePaths paths.PathList
 
 	logger *logger.BuilderLogger
 	clean  bool
@@ -111,11 +116,13 @@ type buildArtifacts struct {
 
 // NewBuilder creates a sketch Builder.
 func NewBuilder(
+	ctx context.Context,
 	sk *sketch.Sketch,
 	boardBuildProperties *properties.Map,
 	buildPath *paths.Path,
 	optimizeForDebug bool,
 	coreBuildCachePath *paths.Path,
+	extraCoreBuildCachePaths paths.PathList,
 	jobs int,
 	requestBuildProperties []string,
 	hardwareDirs, otherLibrariesDirs paths.PathList,
@@ -196,6 +203,7 @@ func NewBuilder(
 
 	diagnosticStore := diagnostics.NewStore()
 	b := &Builder{
+		ctx:                           ctx,
 		sketch:                        sk,
 		buildProperties:               buildProperties,
 		buildPath:                     buildPath,
@@ -205,6 +213,7 @@ func NewBuilder(
 		jobs:                          jobs,
 		customBuildProperties:         customBuildPropertiesArgs,
 		coreBuildCachePath:            coreBuildCachePath,
+		extraCoreBuildCachePaths:      extraCoreBuildCachePaths,
 		logger:                        logger,
 		clean:                         clean,
 		sourceOverrides:               sourceOverrides,
@@ -301,8 +310,9 @@ func (b *Builder) preprocess() error {
 	}
 	b.Progress.CompleteStep()
 
-	b.logIfVerbose(false, tr("Detecting libraries used..."))
+	b.logIfVerbose(false, i18n.Tr("Detecting libraries used..."))
 	err := b.libsDetector.FindIncludes(
+		b.ctx,
 		b.buildPath,
 		b.buildProperties.GetPath("build.core.path"),
 		b.buildProperties.GetPath("build.variant.path"),
@@ -320,7 +330,7 @@ func (b *Builder) preprocess() error {
 	b.warnAboutArchIncompatibleLibraries(b.libsDetector.ImportedLibraries())
 	b.Progress.CompleteStep()
 
-	b.logIfVerbose(false, tr("Generating function prototypes..."))
+	b.logIfVerbose(false, i18n.Tr("Generating function prototypes..."))
 	if err := b.preprocessSketch(b.libsDetector.IncludeFolders()); err != nil {
 		return err
 	}
@@ -372,7 +382,7 @@ func (b *Builder) Build() error {
 
 // Build fixdoc
 func (b *Builder) build() error {
-	b.logIfVerbose(false, tr("Compiling sketch..."))
+	b.logIfVerbose(false, i18n.Tr("Compiling sketch..."))
 	if err := b.RunRecipe("recipe.hooks.sketch.prebuild", ".pattern", false); err != nil {
 		return err
 	}
@@ -388,7 +398,7 @@ func (b *Builder) build() error {
 	}
 	b.Progress.CompleteStep()
 
-	b.logIfVerbose(false, tr("Compiling libraries..."))
+	b.logIfVerbose(false, i18n.Tr("Compiling libraries..."))
 	if err := b.RunRecipe("recipe.hooks.libraries.prebuild", ".pattern", false); err != nil {
 		return err
 	}
@@ -409,7 +419,7 @@ func (b *Builder) build() error {
 	}
 	b.Progress.CompleteStep()
 
-	b.logIfVerbose(false, tr("Compiling core..."))
+	b.logIfVerbose(false, i18n.Tr("Compiling core..."))
 	if err := b.RunRecipe("recipe.hooks.core.prebuild", ".pattern", false); err != nil {
 		return err
 	}
@@ -425,7 +435,7 @@ func (b *Builder) build() error {
 	}
 	b.Progress.CompleteStep()
 
-	b.logIfVerbose(false, tr("Linking everything together..."))
+	b.logIfVerbose(false, i18n.Tr("Linking everything together..."))
 	if err := b.RunRecipe("recipe.hooks.linking.prelink", ".pattern", false); err != nil {
 		return err
 	}
@@ -475,7 +485,7 @@ func (b *Builder) build() error {
 func (b *Builder) prepareCommandForRecipe(buildProperties *properties.Map, recipe string, removeUnsetProperties bool) (*paths.Process, error) {
 	pattern := buildProperties.Get(recipe)
 	if pattern == "" {
-		return nil, fmt.Errorf(tr("%[1]s pattern is missing"), recipe)
+		return nil, errors.New(i18n.Tr("%[1]s pattern is missing", recipe))
 	}
 
 	commandLine := buildProperties.ExpandPropsInString(pattern)

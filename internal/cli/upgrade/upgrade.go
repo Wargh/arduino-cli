@@ -16,6 +16,7 @@
 package upgrade
 
 import (
+	"context"
 	"os"
 
 	"github.com/arduino/arduino-cli/internal/cli/arguments"
@@ -23,32 +24,31 @@ import (
 	"github.com/arduino/arduino-cli/internal/cli/instance"
 	"github.com/arduino/arduino-cli/internal/cli/lib"
 	"github.com/arduino/arduino-cli/internal/i18n"
+	rpc "github.com/arduino/arduino-cli/rpc/cc/arduino/cli/commands/v1"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
-var tr = i18n.Tr
-
 // NewCommand creates a new `upgrade` command
-func NewCommand() *cobra.Command {
+func NewCommand(srv rpc.ArduinoCoreServiceServer) *cobra.Command {
 	var postInstallFlags arguments.PrePostScriptsFlags
 	upgradeCommand := &cobra.Command{
 		Use:     "upgrade",
-		Short:   tr("Upgrades installed cores and libraries."),
-		Long:    tr("Upgrades installed cores and libraries to latest version."),
+		Short:   i18n.Tr("Upgrades installed cores and libraries."),
+		Long:    i18n.Tr("Upgrades installed cores and libraries to latest version."),
 		Example: "  " + os.Args[0] + " upgrade",
 		Args:    cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			runUpgradeCommand(postInstallFlags.DetectSkipPostInstallValue(), postInstallFlags.DetectSkipPreUninstallValue())
+			runUpgradeCommand(cmd.Context(), srv, postInstallFlags.DetectSkipPostInstallValue(), postInstallFlags.DetectSkipPreUninstallValue())
 		},
 	}
 	postInstallFlags.AddToCommand(upgradeCommand)
 	return upgradeCommand
 }
 
-func runUpgradeCommand(skipPostInstall bool, skipPreUninstall bool) {
-	inst := instance.CreateAndInit()
+func runUpgradeCommand(ctx context.Context, srv rpc.ArduinoCoreServiceServer, skipPostInstall bool, skipPreUninstall bool) {
+	inst := instance.CreateAndInit(ctx, srv)
 	logrus.Info("Executing `arduino-cli upgrade`")
-	lib.Upgrade(inst, []string{})
-	core.Upgrade(inst, []string{}, skipPostInstall, skipPreUninstall)
+	lib.Upgrade(ctx, srv, inst, []string{})
+	core.Upgrade(ctx, srv, inst, []string{}, skipPostInstall, skipPreUninstall)
 }

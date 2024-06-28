@@ -17,6 +17,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"path/filepath"
@@ -36,57 +37,75 @@ import (
 	"github.com/arduino/arduino-cli/internal/arduino/resources"
 	"github.com/arduino/arduino-cli/internal/arduino/sketch"
 	"github.com/arduino/arduino-cli/internal/arduino/utils"
-	"github.com/arduino/arduino-cli/internal/cli/configuration"
 	"github.com/arduino/arduino-cli/internal/i18n"
 	rpc "github.com/arduino/arduino-cli/rpc/cc/arduino/cli/commands/v1"
 	paths "github.com/arduino/go-paths-helper"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
-var tr = i18n.Tr
-
-func installTool(pm *packagemanager.PackageManager, tool *cores.ToolRelease, downloadCB rpc.DownloadProgressCB, taskCB rpc.TaskProgressCB) error {
+func installTool(ctx context.Context, pm *packagemanager.PackageManager, tool *cores.ToolRelease, downloadCB rpc.DownloadProgressCB, taskCB rpc.TaskProgressCB) error {
 	pme, release := pm.NewExplorer()
 	defer release()
-	taskCB(&rpc.TaskProgress{Name: tr("Downloading missing tool %s", tool)})
-	if err := pme.DownloadToolRelease(tool, nil, downloadCB); err != nil {
-		return fmt.Errorf(tr("downloading %[1]s tool: %[2]s"), tool, err)
+
+	taskCB(&rpc.TaskProgress{Name: i18n.Tr("Downloading missing tool %s", tool)})
+	if err := pme.DownloadToolRelease(ctx, tool, downloadCB); err != nil {
+		return errors.New(i18n.Tr("downloading %[1]s tool: %[2]s", tool, err))
 	}
 	taskCB(&rpc.TaskProgress{Completed: true})
 	if err := pme.InstallTool(tool, taskCB, true); err != nil {
-		return fmt.Errorf(tr("installing %[1]s tool: %[2]s"), tool, err)
+		return errors.New(i18n.Tr("installing %[1]s tool: %[2]s", tool, err))
 	}
 	return nil
 }
 
-// Create a new CoreInstance ready to be initialized, supporting directories are also created.
-func Create(req *rpc.CreateRequest, extraUserAgent ...string) (*rpc.CreateResponse, error) {
+// Create a new Instance ready to be initialized, supporting directories are also created.
+func (s *arduinoCoreServerImpl) Create(ctx context.Context, req *rpc.CreateRequest) (*rpc.CreateResponse, error) {
+	var userAgent string
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		userAgent = strings.Join(md.Get("user-agent"), " ")
+	}
+	if userAgent == "" {
+		userAgent = "gRPCClientUnknown/0.0.0"
+	}
+
 	// Setup downloads directory
-	downloadsDir := configuration.DownloadsDir(configuration.Settings)
+	downloadsDir := s.settings.DownloadsDir()
 	if downloadsDir.NotExist() {
 		err := downloadsDir.MkdirAll()
 		if err != nil {
-			return nil, &cmderrors.PermissionDeniedError{Message: tr("Failed to create downloads directory"), Cause: err}
+			return nil, &cmderrors.PermissionDeniedError{Message: i18n.Tr("Failed to create downloads directory"), Cause: err}
 		}
 	}
 
 	// Setup data directory
-	dataDir := configuration.DataDir(configuration.Settings)
-	packagesDir := configuration.PackagesDir(configuration.Settings)
+	dataDir := s.settings.DataDir()
+	userPackagesDir := s.settings.UserDir().Join("hardware")
+	packagesDir := s.settings.PackagesDir()
 	if packagesDir.NotExist() {
 		err := packagesDir.MkdirAll()
 		if err != nil {
-			return nil, &cmderrors.PermissionDeniedError{Message: tr("Failed to create data directory"), Cause: err}
+			return nil, &cmderrors.PermissionDeniedError{Message: i18n.Tr("Failed to create data directory"), Cause: err}
 		}
 	}
 
-	inst, err := instances.Create(dataDir, packagesDir, downloadsDir, extraUserAgent...)
+	config, err := s.settings.DownloaderConfig()
+	if err != nil {
+		return nil, err
+	}
+	inst, err := instances.Create(dataDir, packagesDir, userPackagesDir, downloadsDir, userAgent, config)
 	if err != nil {
 		return nil, err
 	}
 	return &rpc.CreateResponse{Instance: inst}, nil
+}
+
+// InitStreamResponseToCallbackFunction returns a gRPC stream to be used in Init that sends
+// all responses to the callback function.
+func InitStreamResponseToCallbackFunction(ctx context.Context, cb func(r *rpc.InitResponse) error) rpc.ArduinoCoreService_InitServer {
+	return streamResponseToCallback(ctx, cb)
 }
 
 // Init loads installed libraries and Platforms in CoreInstance with specified ID,
@@ -94,18 +113,21 @@ func Create(req *rpc.CreateRequest, extraUserAgent ...string) (*rpc.CreateRespon
 // All responses are sent through responseCallback, can be nil to ignore all responses.
 // Failures don't stop the loading process, in case of loading failure the Platform or library
 // is simply skipped and an error gRPC status is sent to responseCallback.
-func Init(req *rpc.InitRequest, responseCallback func(r *rpc.InitResponse)) error {
-	if responseCallback == nil {
-		responseCallback = func(r *rpc.InitResponse) {}
-	}
+func (s *arduinoCoreServerImpl) Init(req *rpc.InitRequest, stream rpc.ArduinoCoreService_InitServer) error {
+	ctx := stream.Context()
+
 	instance := req.GetInstance()
 	if !instances.IsValid(instance) {
 		return &cmderrors.InvalidInstanceError{}
 	}
 
 	// Setup callback functions
-	if responseCallback == nil {
-		responseCallback = func(r *rpc.InitResponse) {}
+	var responseCallback func(*rpc.InitResponse) error
+	if stream != nil {
+		syncSend := NewSynchronizedSend(stream.Send)
+		responseCallback = syncSend.Send
+	} else {
+		responseCallback = func(*rpc.InitResponse) error { return nil }
 	}
 	responseError := func(st *status.Status) {
 		responseCallback(&rpc.InitResponse{
@@ -156,27 +178,28 @@ func Init(req *rpc.InitRequest, responseCallback func(r *rpc.InitResponse)) erro
 	defaultIndexURL, _ := utils.URLParse(globals.DefaultIndexURL)
 	allPackageIndexUrls := []*url.URL{defaultIndexURL}
 	if profile == nil {
-		for _, u := range configuration.Settings.GetStringSlice("board_manager.additional_urls") {
+		for _, u := range s.settings.BoardManagerAdditionalUrls() {
 			URL, err := utils.URLParse(u)
 			if err != nil {
 				e := &cmderrors.InitFailedError{
 					Code:   codes.InvalidArgument,
-					Cause:  fmt.Errorf(tr("Invalid additional URL: %v", err)),
+					Cause:  errors.New(i18n.Tr("Invalid additional URL: %v", err)),
 					Reason: rpc.FailedInstanceInitReason_FAILED_INSTANCE_INIT_REASON_INVALID_INDEX_URL,
 				}
-				responseError(e.ToRPCStatus())
+				responseError(e.GRPCStatus())
 				continue
 			}
 			allPackageIndexUrls = append(allPackageIndexUrls, URL)
 		}
 	}
-	if err := firstUpdate(context.Background(), req.GetInstance(), downloadCallback, allPackageIndexUrls); err != nil {
+
+	if err := firstUpdate(ctx, s, req.GetInstance(), s.settings.DataDir(), downloadCallback, allPackageIndexUrls); err != nil {
 		e := &cmderrors.InitFailedError{
 			Code:   codes.InvalidArgument,
 			Cause:  err,
 			Reason: rpc.FailedInstanceInitReason_FAILED_INSTANCE_INIT_REASON_INDEX_DOWNLOAD_ERROR,
 		}
-		responseError(e.ToRPCStatus())
+		responseError(e.GRPCStatus())
 	}
 
 	{
@@ -198,10 +221,10 @@ func Init(req *rpc.InitRequest, responseCallback func(r *rpc.InitResponse)) erro
 				if err != nil {
 					e := &cmderrors.InitFailedError{
 						Code:   codes.FailedPrecondition,
-						Cause:  fmt.Errorf(tr("Loading index file: %v", err)),
+						Cause:  errors.New(i18n.Tr("Loading index file: %v", err)),
 						Reason: rpc.FailedInstanceInitReason_FAILED_INSTANCE_INIT_REASON_INDEX_LOAD_ERROR,
 					}
-					responseError(e.ToRPCStatus())
+					responseError(e.GRPCStatus())
 				}
 				continue
 			}
@@ -209,10 +232,10 @@ func Init(req *rpc.InitRequest, responseCallback func(r *rpc.InitResponse)) erro
 			if err := pmb.LoadPackageIndex(URL); err != nil {
 				e := &cmderrors.InitFailedError{
 					Code:   codes.FailedPrecondition,
-					Cause:  fmt.Errorf(tr("Loading index file: %v", err)),
+					Cause:  errors.New(i18n.Tr("Loading index file: %v", err)),
 					Reason: rpc.FailedInstanceInitReason_FAILED_INSTANCE_INIT_REASON_INDEX_LOAD_ERROR,
 				}
-				responseError(e.ToRPCStatus())
+				responseError(e.GRPCStatus())
 			}
 		}
 
@@ -225,16 +248,14 @@ func Init(req *rpc.InitRequest, responseCallback func(r *rpc.InitResponse)) erro
 		if profile == nil {
 			for _, err := range pmb.LoadHardware() {
 				s := &cmderrors.PlatformLoadingError{Cause: err}
-				responseError(s.ToRPCStatus())
+				responseError(s.GRPCStatus())
 			}
 		} else {
 			// Load platforms from profile
-			errs := pmb.LoadHardwareForProfile(
-				profile, true, downloadCallback, taskCallback,
-			)
+			errs := pmb.LoadHardwareForProfile(ctx, profile, true, downloadCallback, taskCallback, s.settings)
 			for _, err := range errs {
 				s := &cmderrors.PlatformLoadingError{Cause: err}
-				responseError(s.ToRPCStatus())
+				responseError(s.GRPCStatus())
 			}
 
 			// Load "builtin" tools
@@ -251,10 +272,10 @@ func Init(req *rpc.InitRequest, responseCallback func(r *rpc.InitResponse)) erro
 			if latest == nil {
 				e := &cmderrors.InitFailedError{
 					Code:   codes.Internal,
-					Cause:  fmt.Errorf(tr("can't find latest release of tool %s", name)),
+					Cause:  errors.New(i18n.Tr("can't find latest release of tool %s", name)),
 					Reason: rpc.FailedInstanceInitReason_FAILED_INSTANCE_INIT_REASON_TOOL_LOAD_ERROR,
 				}
-				responseError(e.ToRPCStatus())
+				responseError(e.GRPCStatus())
 			} else if !latest.IsInstalled() {
 				builtinToolsToInstall = append(builtinToolsToInstall, latest)
 			}
@@ -263,13 +284,13 @@ func Init(req *rpc.InitRequest, responseCallback func(r *rpc.InitResponse)) erro
 		// Install builtin tools if necessary
 		if len(builtinToolsToInstall) > 0 {
 			for _, toolRelease := range builtinToolsToInstall {
-				if err := installTool(pmb.Build(), toolRelease, downloadCallback, taskCallback); err != nil {
+				if err := installTool(ctx, pmb.Build(), toolRelease, downloadCallback, taskCallback); err != nil {
 					e := &cmderrors.InitFailedError{
 						Code:   codes.Internal,
 						Cause:  err,
 						Reason: rpc.FailedInstanceInitReason_FAILED_INSTANCE_INIT_REASON_TOOL_LOAD_ERROR,
 					}
-					responseError(e.ToRPCStatus())
+					responseError(e.GRPCStatus())
 				}
 			}
 
@@ -277,7 +298,7 @@ func Init(req *rpc.InitRequest, responseCallback func(r *rpc.InitResponse)) erro
 			// so we must reload again otherwise we would never found them.
 			for _, err := range loadBuiltinTools() {
 				s := &cmderrors.PlatformLoadingError{Cause: err}
-				responseError(s.ToRPCStatus())
+				responseError(s.GRPCStatus())
 			}
 		}
 
@@ -292,7 +313,7 @@ func Init(req *rpc.InitRequest, responseCallback func(r *rpc.InitResponse)) erro
 
 	for _, err := range pme.LoadDiscoveries() {
 		s := &cmderrors.PlatformLoadingError{Cause: err}
-		responseError(s.ToRPCStatus())
+		responseError(s.GRPCStatus())
 	}
 
 	// Create library manager and add libraries directories
@@ -321,7 +342,7 @@ func Init(req *rpc.InitRequest, responseCallback func(r *rpc.InitResponse)) erro
 	logrus.WithField("index", indexFile).Info("Loading libraries index file")
 	li, err := librariesindex.LoadIndex(indexFile)
 	if err != nil {
-		s := status.Newf(codes.FailedPrecondition, tr("Loading index file: %v"), err)
+		s := status.Newf(codes.FailedPrecondition, i18n.Tr("Loading index file: %v", err))
 		responseError(s)
 		li = librariesindex.EmptyIndex
 	}
@@ -329,7 +350,7 @@ func Init(req *rpc.InitRequest, responseCallback func(r *rpc.InitResponse)) erro
 
 	if profile == nil {
 		// Add directories of libraries bundled with IDE
-		if bundledLibsDir := configuration.IDEBuiltinLibrariesDir(configuration.Settings); bundledLibsDir != nil {
+		if bundledLibsDir := s.settings.IDEBuiltinLibrariesDir(); bundledLibsDir != nil {
 			lmb.AddLibrariesDir(librariesmanager.LibrariesDir{
 				Path:     bundledLibsDir,
 				Location: libraries.IDEBuiltIn,
@@ -338,40 +359,47 @@ func Init(req *rpc.InitRequest, responseCallback func(r *rpc.InitResponse)) erro
 
 		// Add libraries directory from config file
 		lmb.AddLibrariesDir(librariesmanager.LibrariesDir{
-			Path:     configuration.LibrariesDir(configuration.Settings),
+			Path:     s.settings.LibrariesDir(),
 			Location: libraries.User,
 		})
 	} else {
 		// Load libraries required for profile
 		for _, libraryRef := range profile.Libraries {
 			uid := libraryRef.InternalUniqueIdentifier()
-			libRoot := configuration.ProfilesCacheDir(configuration.Settings).Join(uid)
+			libRoot := s.settings.ProfilesCacheDir().Join(uid)
 			libDir := libRoot.Join(libraryRef.Library)
 
 			if !libDir.IsDir() {
 				// Download library
-				taskCallback(&rpc.TaskProgress{Name: tr("Downloading library %s", libraryRef)})
+				taskCallback(&rpc.TaskProgress{Name: i18n.Tr("Downloading library %s", libraryRef)})
 				libRelease, err := li.FindRelease(libraryRef.Library, libraryRef.Version)
 				if err != nil {
-					taskCallback(&rpc.TaskProgress{Name: tr("Library %s not found", libraryRef)})
+					taskCallback(&rpc.TaskProgress{Name: i18n.Tr("Library %s not found", libraryRef)})
 					err := &cmderrors.LibraryNotFoundError{Library: libraryRef.Library}
-					responseError(err.ToRPCStatus())
+					responseError(err.GRPCStatus())
 					continue
 				}
-				if err := libRelease.Resource.Download(pme.DownloadDir, nil, libRelease.String(), downloadCallback, ""); err != nil {
-					taskCallback(&rpc.TaskProgress{Name: tr("Error downloading library %s", libraryRef)})
+				config, err := s.settings.DownloaderConfig()
+				if err != nil {
+					taskCallback(&rpc.TaskProgress{Name: i18n.Tr("Error downloading library %s", libraryRef)})
 					e := &cmderrors.FailedLibraryInstallError{Cause: err}
-					responseError(e.ToRPCStatus())
+					responseError(e.GRPCStatus())
+					continue
+				}
+				if err := libRelease.Resource.Download(ctx, pme.DownloadDir, config, libRelease.String(), downloadCallback, ""); err != nil {
+					taskCallback(&rpc.TaskProgress{Name: i18n.Tr("Error downloading library %s", libraryRef)})
+					e := &cmderrors.FailedLibraryInstallError{Cause: err}
+					responseError(e.GRPCStatus())
 					continue
 				}
 				taskCallback(&rpc.TaskProgress{Completed: true})
 
 				// Install library
-				taskCallback(&rpc.TaskProgress{Name: tr("Installing library %s", libraryRef)})
+				taskCallback(&rpc.TaskProgress{Name: i18n.Tr("Installing library %s", libraryRef)})
 				if err := libRelease.Resource.Install(pme.DownloadDir, libRoot, libDir); err != nil {
-					taskCallback(&rpc.TaskProgress{Name: tr("Error installing library %s", libraryRef)})
+					taskCallback(&rpc.TaskProgress{Name: i18n.Tr("Error installing library %s", libraryRef)})
 					e := &cmderrors.FailedLibraryInstallError{Cause: err}
-					responseError(e.ToRPCStatus())
+					responseError(e.GRPCStatus())
 					continue
 				}
 				taskCallback(&rpc.TaskProgress{Completed: true})
@@ -394,43 +422,69 @@ func Init(req *rpc.InitRequest, responseCallback func(r *rpc.InitResponse)) erro
 	// Refreshes the locale used, this will change the
 	// language of the CLI if the locale is different
 	// after started.
-	i18n.Init(configuration.Settings.GetString("locale"))
+	i18n.Init(s.settings.GetString("locale"))
 
 	return nil
 }
 
-// Destroy FIXMEDOC
-func Destroy(ctx context.Context, req *rpc.DestroyRequest) (*rpc.DestroyResponse, error) {
+// Destroy deletes an instance.
+func (s *arduinoCoreServerImpl) Destroy(ctx context.Context, req *rpc.DestroyRequest) (*rpc.DestroyResponse, error) {
 	if ok := instances.Delete(req.GetInstance()); !ok {
 		return nil, &cmderrors.InvalidInstanceError{}
 	}
 	return &rpc.DestroyResponse{}, nil
 }
 
+// UpdateLibrariesIndexStreamResponseToCallbackFunction returns a gRPC stream to be used in UpdateLibrariesIndex that sends
+// all responses to the callback function.
+func UpdateLibrariesIndexStreamResponseToCallbackFunction(ctx context.Context, downloadCB rpc.DownloadProgressCB) (rpc.ArduinoCoreService_UpdateLibrariesIndexServer, func() *rpc.UpdateLibrariesIndexResponse_Result) {
+	var result *rpc.UpdateLibrariesIndexResponse_Result
+	return streamResponseToCallback(ctx, func(r *rpc.UpdateLibrariesIndexResponse) error {
+			if r.GetDownloadProgress() != nil {
+				downloadCB(r.GetDownloadProgress())
+			}
+			if r.GetResult() != nil {
+				result = r.GetResult()
+			}
+			return nil
+		}), func() *rpc.UpdateLibrariesIndexResponse_Result {
+			return result
+		}
+}
+
 // UpdateLibrariesIndex updates the library_index.json
-func UpdateLibrariesIndex(ctx context.Context, req *rpc.UpdateLibrariesIndexRequest, downloadCB rpc.DownloadProgressCB) (*rpc.UpdateLibrariesIndexResponse_Result, error) {
-	logrus.Info("Updating libraries index")
+func (s *arduinoCoreServerImpl) UpdateLibrariesIndex(req *rpc.UpdateLibrariesIndexRequest, stream rpc.ArduinoCoreService_UpdateLibrariesIndexServer) error {
+	syncSend := NewSynchronizedSend(stream.Send)
+	downloadCB := func(p *rpc.DownloadProgress) {
+		syncSend.Send(&rpc.UpdateLibrariesIndexResponse{
+			Message: &rpc.UpdateLibrariesIndexResponse_DownloadProgress{DownloadProgress: p}})
+	}
 
 	pme, release, err := instances.GetPackageManagerExplorer(req.GetInstance())
 	if err != nil {
-		return nil, err
+		return err
 	}
 	indexDir := pme.IndexDir
 	release()
-
 	index := globals.LibrariesIndexResource
-	result := func(status rpc.IndexUpdateReport_Status) *rpc.UpdateLibrariesIndexResponse_Result {
-		return &rpc.UpdateLibrariesIndexResponse_Result{
-			LibrariesIndex: &rpc.IndexUpdateReport{
-				IndexUrl: globals.LibrariesIndexResource.URL.String(),
-				Status:   status,
+
+	resultCB := func(status rpc.IndexUpdateReport_Status) {
+		syncSend.Send(&rpc.UpdateLibrariesIndexResponse{
+			Message: &rpc.UpdateLibrariesIndexResponse_Result_{
+				Result: &rpc.UpdateLibrariesIndexResponse_Result{
+					LibrariesIndex: &rpc.IndexUpdateReport{
+						IndexUrl: index.URL.String(),
+						Status:   status,
+					},
+				},
 			},
-		}
+		})
 	}
 
 	// Create the index directory if it doesn't exist
 	if err := indexDir.MkdirAll(); err != nil {
-		return result(rpc.IndexUpdateReport_STATUS_FAILED), &cmderrors.PermissionDeniedError{Message: tr("Could not create index directory"), Cause: err}
+		resultCB(rpc.IndexUpdateReport_STATUS_FAILED)
+		return &cmderrors.PermissionDeniedError{Message: i18n.Tr("Could not create index directory"), Cause: err}
 	}
 
 	// Check if the index file is already up-to-date
@@ -438,22 +492,46 @@ func UpdateLibrariesIndex(ctx context.Context, req *rpc.UpdateLibrariesIndexRequ
 	if info, err := indexDir.Join(indexFileName).Stat(); err == nil {
 		ageSecs := int64(time.Since(info.ModTime()).Seconds())
 		if ageSecs < req.GetUpdateIfOlderThanSecs() {
-			return result(rpc.IndexUpdateReport_STATUS_ALREADY_UP_TO_DATE), nil
+			resultCB(rpc.IndexUpdateReport_STATUS_ALREADY_UP_TO_DATE)
+			return nil
 		}
 	}
 
 	// Perform index update
-	if err := globals.LibrariesIndexResource.Download(indexDir, downloadCB); err != nil {
-		return nil, err
+	config, err := s.settings.DownloaderConfig()
+	if err != nil {
+		return err
+	}
+	if err := globals.LibrariesIndexResource.Download(stream.Context(), indexDir, downloadCB, config); err != nil {
+		resultCB(rpc.IndexUpdateReport_STATUS_FAILED)
+		return err
 	}
 
-	return result(rpc.IndexUpdateReport_STATUS_UPDATED), nil
+	resultCB(rpc.IndexUpdateReport_STATUS_UPDATED)
+	return nil
+}
+
+// UpdateIndexStreamResponseToCallbackFunction returns a gRPC stream to be used in UpdateIndex that sends
+// all responses to the callback function.
+func UpdateIndexStreamResponseToCallbackFunction(ctx context.Context, downloadCB rpc.DownloadProgressCB) (rpc.ArduinoCoreService_UpdateIndexServer, func() *rpc.UpdateIndexResponse_Result) {
+	var result *rpc.UpdateIndexResponse_Result
+	return streamResponseToCallback(ctx, func(r *rpc.UpdateIndexResponse) error {
+			if r.GetDownloadProgress() != nil {
+				downloadCB(r.GetDownloadProgress())
+			}
+			if r.GetResult() != nil {
+				result = r.GetResult()
+			}
+			return nil
+		}), func() *rpc.UpdateIndexResponse_Result {
+			return result
+		}
 }
 
 // UpdateIndex FIXMEDOC
-func UpdateIndex(ctx context.Context, req *rpc.UpdateIndexRequest, downloadCB rpc.DownloadProgressCB) (*rpc.UpdateIndexResponse_Result, error) {
+func (s *arduinoCoreServerImpl) UpdateIndex(req *rpc.UpdateIndexRequest, stream rpc.ArduinoCoreService_UpdateIndexServer) error {
 	if !instances.IsValid(req.GetInstance()) {
-		return nil, &cmderrors.InvalidInstanceError{}
+		return &cmderrors.InvalidInstanceError{}
 	}
 
 	report := func(indexURL *url.URL, status rpc.IndexUpdateReport_Status) *rpc.IndexUpdateReport {
@@ -463,11 +541,17 @@ func UpdateIndex(ctx context.Context, req *rpc.UpdateIndexRequest, downloadCB rp
 		}
 	}
 
-	indexpath := configuration.DataDir(configuration.Settings)
+	syncSend := NewSynchronizedSend(stream.Send)
+	var downloadCB rpc.DownloadProgressCB = func(p *rpc.DownloadProgress) {
+		syncSend.Send(&rpc.UpdateIndexResponse{
+			Message: &rpc.UpdateIndexResponse_DownloadProgress{DownloadProgress: p},
+		})
+	}
+	indexpath := s.settings.DataDir()
 
 	urls := []string{globals.DefaultIndexURL}
 	if !req.GetIgnoreCustomPackageIndexes() {
-		urls = append(urls, configuration.Settings.GetStringSlice("board_manager.additional_urls")...)
+		urls = append(urls, s.settings.GetStringSlice("board_manager.additional_urls")...)
 	}
 
 	failed := false
@@ -476,8 +560,8 @@ func UpdateIndex(ctx context.Context, req *rpc.UpdateIndexRequest, downloadCB rp
 		URL, err := url.Parse(u)
 		if err != nil {
 			logrus.Warnf("unable to parse additional URL: %s", u)
-			msg := fmt.Sprintf("%s: %v", tr("Unable to parse URL"), err)
-			downloadCB.Start(u, tr("Downloading index: %s", u))
+			msg := fmt.Sprintf("%s: %v", i18n.Tr("Unable to parse URL"), err)
+			downloadCB.Start(u, i18n.Tr("Downloading index: %s", u))
 			downloadCB.End(false, msg)
 			failed = true
 			result.UpdatedIndexes = append(result.GetUpdatedIndexes(), report(URL, rpc.IndexUpdateReport_STATUS_FAILED))
@@ -494,8 +578,8 @@ func UpdateIndex(ctx context.Context, req *rpc.UpdateIndexRequest, downloadCB rp
 				path = paths.New(URL.Path[1:])
 			}
 			if _, err := packageindex.LoadIndexNoSign(path); err != nil {
-				msg := fmt.Sprintf("%s: %v", tr("Invalid package index in %s", path), err)
-				downloadCB.Start(u, tr("Downloading index: %s", filepath.Base(URL.Path)))
+				msg := fmt.Sprintf("%s: %v", i18n.Tr("Invalid package index in %s", path), err)
+				downloadCB.Start(u, i18n.Tr("Downloading index: %s", filepath.Base(URL.Path)))
 				downloadCB.End(false, msg)
 				failed = true
 				result.UpdatedIndexes = append(result.GetUpdatedIndexes(), report(URL, rpc.IndexUpdateReport_STATUS_FAILED))
@@ -509,8 +593,8 @@ func UpdateIndex(ctx context.Context, req *rpc.UpdateIndexRequest, downloadCB rp
 		indexResource := resources.IndexResource{URL: URL}
 		indexFileName, err := indexResource.IndexFileName()
 		if err != nil {
-			downloadCB.Start(u, tr("Downloading index: %s", filepath.Base(URL.Path)))
-			downloadCB.End(false, tr("Invalid index URL: %s", err))
+			downloadCB.Start(u, i18n.Tr("Downloading index: %s", filepath.Base(URL.Path)))
+			downloadCB.End(false, i18n.Tr("Invalid index URL: %s", err))
 			failed = true
 			result.UpdatedIndexes = append(result.GetUpdatedIndexes(), report(URL, rpc.IndexUpdateReport_STATUS_FAILED))
 			continue
@@ -524,36 +608,45 @@ func UpdateIndex(ctx context.Context, req *rpc.UpdateIndexRequest, downloadCB rp
 			}
 		}
 
+		config, err := s.settings.DownloaderConfig()
+		if err != nil {
+			downloadCB.Start(u, i18n.Tr("Downloading index: %s", filepath.Base(URL.Path)))
+			downloadCB.End(false, i18n.Tr("Invalid network configuration: %s", err))
+			failed = true
+			continue
+		}
+
 		if strings.HasSuffix(URL.Host, "arduino.cc") && strings.HasSuffix(URL.Path, ".json") {
 			indexResource.SignatureURL, _ = url.Parse(u) // should not fail because we already parsed it
 			indexResource.SignatureURL.Path += ".sig"
 		}
-		if err := indexResource.Download(indexpath, downloadCB); err != nil {
+		if err := indexResource.Download(stream.Context(), indexpath, downloadCB, config); err != nil {
 			failed = true
 			result.UpdatedIndexes = append(result.GetUpdatedIndexes(), report(URL, rpc.IndexUpdateReport_STATUS_FAILED))
 		} else {
 			result.UpdatedIndexes = append(result.GetUpdatedIndexes(), report(URL, rpc.IndexUpdateReport_STATUS_UPDATED))
 		}
 	}
-
+	syncSend.Send(&rpc.UpdateIndexResponse{
+		Message: &rpc.UpdateIndexResponse_Result_{Result: result},
+	})
 	if failed {
-		return result, &cmderrors.FailedDownloadError{Message: tr("Some indexes could not be updated.")}
+		return &cmderrors.FailedDownloadError{Message: i18n.Tr("Some indexes could not be updated.")}
 	}
-	return result, nil
+	return nil
 }
 
 // firstUpdate downloads libraries and packages indexes if they don't exist.
 // This ideally is only executed the first time the CLI is run.
-func firstUpdate(ctx context.Context, instance *rpc.Instance, downloadCb func(msg *rpc.DownloadProgress), externalPackageIndexes []*url.URL) error {
-	// Gets the data directory to verify if library_index.json and package_index.json exist
-	dataDir := configuration.DataDir(configuration.Settings)
-	libraryIndex := dataDir.Join("library_index.json")
+func firstUpdate(ctx context.Context, srv rpc.ArduinoCoreServiceServer, instance *rpc.Instance, indexDir *paths.Path, downloadCb func(msg *rpc.DownloadProgress), externalPackageIndexes []*url.URL) error {
+	libraryIndex := indexDir.Join("library_index.json")
 
 	if libraryIndex.NotExist() {
 		// The library_index.json file doesn't exists, that means the CLI is run for the first time
 		// so we proceed with the first update that downloads the file
 		req := &rpc.UpdateLibrariesIndexRequest{Instance: instance}
-		if _, err := UpdateLibrariesIndex(ctx, req, downloadCb); err != nil {
+		stream, _ := UpdateLibrariesIndexStreamResponseToCallbackFunction(ctx, downloadCb)
+		if err := srv.UpdateLibrariesIndex(req, stream); err != nil {
 			return err
 		}
 	}
@@ -565,17 +658,18 @@ func firstUpdate(ctx context.Context, instance *rpc.Instance, downloadCb func(ms
 		packageIndexFileName, err := (&resources.IndexResource{URL: URL}).IndexFileName()
 		if err != nil {
 			return &cmderrors.FailedDownloadError{
-				Message: tr("Error downloading index '%s'", URL),
+				Message: i18n.Tr("Error downloading index '%s'", URL),
 				Cause:   &cmderrors.InvalidURLError{}}
 		}
-		packageIndexFile := dataDir.Join(packageIndexFileName)
+		packageIndexFile := indexDir.Join(packageIndexFileName)
 		if packageIndexFile.NotExist() {
 			// The index file doesn't exists, that means the CLI is run for the first time,
 			// or the 3rd party package index URL has just been added. Similarly to the
 			// library update we download that file and all the other package indexes from
 			// additional_urls
 			req := &rpc.UpdateIndexRequest{Instance: instance}
-			if _, err := UpdateIndex(ctx, req, downloadCb); err != nil {
+			stream, _ := UpdateIndexStreamResponseToCallbackFunction(ctx, downloadCb)
+			if err := srv.UpdateIndex(req, stream); err != nil {
 				return err
 			}
 			break

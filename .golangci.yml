@@ -33,6 +33,51 @@ linters:
     #- protogetter
 
 linters-settings:
+  govet:
+    # Enable analyzers by name.
+    # Run `GL_DEBUG=govet golangci-lint run --enable=govet` to see default, all available analyzers, and enabled analyzers.
+    enable:
+      - appends
+      - asmdecl
+      - assign
+      - atomic
+      - atomicalign
+      - bools
+      - buildtag
+      - cgocall
+      - composites
+      - copylocks
+      - deepequalerrors
+      - defers
+      - directive
+      - errorsas
+      #- fieldalignment
+      - findcall
+      - framepointer
+      - httpresponse
+      - ifaceassert
+      - loopclosure
+      - lostcancel
+      - nilfunc
+      - nilness
+      - printf
+      - reflectvaluecompare
+      #- shadow
+      - shift
+      - sigchanyzer
+      - slog
+      - sortslice
+      - stdmethods
+      - stringintconv
+      - structtag
+      - testinggoroutine
+      - tests
+      - unmarshal
+      - unreachable
+      - unsafeptr
+      - unusedresult
+      - unusedwrite
+
   forbidigo:
     forbid:
       - p: ^(fmt\.Print(|f|ln)|print|println)$
@@ -134,5 +179,7 @@ issues:
     - path-except: internal/cli/
       linters:
         - forbidigo
+    - path: internal/cli/.*_test.go
+      linters: [forbidigo]
     - path: internal/cli/feedback/
       linters: [forbidigo]

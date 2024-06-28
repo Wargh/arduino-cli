@@ -1,17 +1,18 @@
 // This file is part of arduino-cli.
 //
-// Copyright 2020 ARDUINO SA (http://www.arduino.cc/)
+// Copyright 2024 ARDUINO SA (https://www.arduino.cc/)
 //
-// This software is released under the GNU General Public License version 3,
-// which covers the main part of arduino-cli.
-// The terms of this license can be found at:
-// https://www.gnu.org/licenses/gpl-3.0.en.html
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// You can be released from the requirements of the above licenses by purchasing
-// a commercial license. Buying such a license is mandatory if you want to
-// modify or otherwise use the software for commercial activities involving the
-// Arduino software without disclosing the source code of your own applications.
-// To purchase a commercial license, send an email to license@arduino.cc.
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 syntax = "proto3";
 
@@ -51,22 +52,24 @@ message MonitorPortOpenRequest {
 }
 
 message MonitorPortConfiguration {
-  // The port configuration parameters to configure
+  // The port configuration parameters
   repeated MonitorPortSetting settings = 1;
 }
 
 message MonitorResponse {
-  // Eventual errors dealing with monitor port
-  string error = 1;
-  // Data received from the port
-  bytes rx_data = 2;
-  // Settings applied to the port, may be returned after a port is opened (to
-  // report the default settings) or after a new port_configuration is sent
-  // (to report the new settings applied)
-  repeated MonitorPortSetting applied_settings = 3;
-  // A message with this field set to true is sent as soon as the port is
-  // succesfully opened
-  bool success = 4;
+  oneof message {
+    // Eventual errors dealing with monitor port
+    string error = 1;
+    // Data received from the port
+    bytes rx_data = 2;
+    // Settings applied to the port, may be returned after a port is opened (to
+    // report the default settings) or after a new port_configuration is sent
+    // (to report the new settings applied)
+    MonitorPortConfiguration applied_settings = 3;
+    // A message with this field set to true is sent as soon as the port is
+    // succesfully opened
+    bool success = 4;
+  }
 }
 
 message MonitorPortSetting {
